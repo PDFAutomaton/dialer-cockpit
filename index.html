@@ -771,9 +771,17 @@
   var state = {
     fileLoaded: false, // distinguishes "no CSV loaded yet" from "loaded but zero dialable rows"
     headers: [],
-    leads: [],       // full queue (already filtered + sorted), each: {row, sessionNote, tz, firstName, callbackAnnounced}
+    leads: [],       // full queue (already filtered + sorted), each: {row, sessionNote, tz, firstName, callbackAnnounced, dialedThisSession, everDialedThisSession}
     index: 0,
-    stats: { dials: 0, answers: 0, closed: 0, sessionStart: null },
+    // dials/answers/closed used to live here as incrementing counters —
+    // removed 2026-09-17 (see dialsCount/answersCount/closedCount below):
+    // an incrementing counter double-counts the moment an outcome is
+    // corrected (Back-then-relog) or a lead is re-logged after a jump,
+    // since every recordOutcome call bumped it unconditionally regardless
+    // of whether that lead had already been counted. Derived counts can't
+    // drift from reality the same way — sessionStart is the only thing
+    // that still needs to persist as real running state (nothing recomputes it).
+    stats: { sessionStart: null },
     actionHistory: [], // stack of snapshots for goBack() — see snapshotForUndo/applyUndoSnapshot
     scriptMode: "full", // "full" | "short"
   };
@@ -832,8 +840,22 @@
       // (see jumpToLead) can move state.index past leads that were never
       // actually touched. Set true only by recordOutcome/scheduleCallback
       // (an outcome was actually logged), never by goNext (a plain skip
-      // logs nothing, so it must still read as "not yet dialed").
+      // logs nothing, so it must still read as "not yet dialed"). Back
+      // (undo) DOES reset this back to false, correctly showing "not yet
+      // dialed" again once the logged outcome itself has been undone.
       dialedThisSession: false,
+      // Separate, PERMANENT flag backing the dials count (2026-09-17 fix)
+      // — deliberately never reset by Back/undo, unlike dialedThisSession
+      // above. The distinction: dialedThisSession answers "is there an
+      // unresolved outcome to show in the Leads-in-session list right
+      // now," which SHOULD flip back after an undo. everDialedThisSession
+      // answers "did a real dial happen for this lead at some point this
+      // session," which undoing a correction can't make untrue — you can
+      // fix what you logged, you can't un-ring the phone. Reset to false
+      // only when a genuinely NEW session starts (a fresh, non-append
+      // load), never by append (same lead, same session) or by Back —
+      // see dialsCount() and recordOutcome/scheduleCallback.
+      everDialedThisSession: false,
     };
   }
 
@@ -903,6 +925,43 @@
     var count = 0;
     for (var i = 0; i < leads.length; i++) {
       if (!leads[i].dialedThisSession) count++;
+    }
+    return count;
+  }
+
+  // Dials/Answers/Closed (2026-09-17 fix) — all three are derived counts
+  // over the CURRENT state of state.leads, computed fresh on every render,
+  // never mutable running totals. This is what makes them immune to the
+  // reported bug (re-logging an outcome, or scheduling a callback on an
+  // already-dialed lead, incrementing dials again): there is no counter to
+  // double-bump, only a fact to recount. dialsCount specifically counts
+  // UNIQUE LEADS ever dialed this session (via everDialedThisSession,
+  // which Back never resets — see makeLeadObject), not outcome-logging
+  // events. answersCount/closedCount key off row.status directly, which is
+  // safe without a separate flag: LOAD_STATUSES never lets a freshly
+  // loaded row start as "called_talked" or "closed", so those statuses can
+  // only ever be reached by an in-session action.
+  function dialsCount(leads) {
+    var count = 0;
+    for (var i = 0; i < leads.length; i++) {
+      if (leads[i].everDialedThisSession) count++;
+    }
+    return count;
+  }
+
+  function answersCount(leads) {
+    var count = 0;
+    for (var i = 0; i < leads.length; i++) {
+      var s = leads[i].row.status;
+      if (s === "called_talked" || s === "closed") count++;
+    }
+    return count;
+  }
+
+  function closedCount(leads) {
+    var count = 0;
+    for (var i = 0; i < leads.length; i++) {
+      if (leads[i].row.status === "closed") count++;
     }
     return count;
   }
@@ -1304,14 +1363,15 @@
   }
 
   function renderStats() {
-    els.statDials.textContent = state.stats.dials;
-    els.statAnswers.textContent = state.stats.answers;
-    els.statClosed.textContent = state.stats.closed;
+    var dials = dialsCount(state.leads);
+    els.statDials.textContent = dials;
+    els.statAnswers.textContent = answersCount(state.leads);
+    els.statClosed.textContent = closedCount(state.leads);
     var due = dueCallbackCount(state.leads, new Date());
     els.statCallbacksDue.textContent = due;
     els.statCallbacksDue.classList.toggle("due", due > 0);
     var hours = state.stats.sessionStart ? (Date.now() - state.stats.sessionStart) / 3600000 : 0;
-    els.statPace.textContent = hours > 0.01 ? (state.stats.dials / hours).toFixed(1) : "0.0";
+    els.statPace.textContent = hours > 0.01 ? (dials / hours).toFixed(1) : "0.0";
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -1331,7 +1391,7 @@
         var queue = filterAndSort(parsed.rows, now);
         state.leads = queue.map(function (row) { return makeLeadObject(row, now); });
         state.index = 0;
-        state.stats = { dials: 0, answers: 0, closed: 0, sessionStart: Date.now() };
+        state.stats = { sessionStart: Date.now() };
         state.actionHistory = [];
       }
       state.fileLoaded = true;
@@ -1353,6 +1413,28 @@
     lead.sessionNote = lead.sessionNote ? (lead.sessionNote + " | " + text) : text;
   }
 
+  // Confirmation gate for the two outcomes that permanently archive a lead
+  // under attempt-cap-1 (2026-09-17, per Abdir: NO ANSWER and DEAD — "do
+  // not call" in plain terms — never the others, since a confirm on every
+  // tap is unworkable at 400 dials/day). Shows the business name so it's
+  // never a blind "are you sure?" Returns true immediately (no dialog) for
+  // any non-destructive outcome.
+  function confirmDestructiveOutcome(outcomeKey, businessName) {
+    if (outcomeKey !== "no_answer" && outcomeKey !== "dead") return true;
+    var name = businessName || "this lead";
+    var label = outcomeKey === "no_answer" ? "NO ANSWER" : "DEAD (do not call)";
+    return window.confirm(
+      "Mark " + label + " for " + name + "?\n\nThis archives them permanently — no redial."
+    );
+  }
+
+  function tryRecordOutcome(outcomeKey) {
+    var lead = currentLead();
+    var name = lead ? (lead.row.business_name || "(no name)") : "this lead";
+    if (!confirmDestructiveOutcome(outcomeKey, name)) return;
+    recordOutcome(outcomeKey, "");
+  }
+
   function recordOutcome(outcomeKey, extraNote) {
     var lead = currentLead();
     if (!lead) return;
@@ -1364,6 +1446,7 @@
     lead.row.status = patch.status;
     lead.row.next_eligible_at = patch.next_eligible_at;
     lead.dialedThisSession = true;
+    lead.everDialedThisSession = true; // permanent — a real dial happened; correcting the outcome later can't undo that
     if (outcomeKey === "closed" && !lead.row.closed_at) {
       lead.row.closed_at = formatTimestamp(new Date());
     }
@@ -1373,9 +1456,8 @@
     }
     if (extraNote) appendSessionNote(lead, extraNote);
 
-    state.stats.dials++;
-    if (outcomeKey === "called_talked" || outcomeKey === "closed") state.stats.answers++;
-    if (outcomeKey === "closed") state.stats.closed++;
+    // dials/answers/closed are no longer incremented here — see
+    // dialsCount/answersCount/closedCount, computed fresh in renderStats().
 
     state.index++;
     saveState();
@@ -1394,11 +1476,11 @@
     lead.row.status = patch.status;
     lead.row.callback_at = patch.callback_at;
     lead.dialedThisSession = true;
+    lead.everDialedThisSession = true; // scheduling a callback is a real dial too — same rule as recordOutcome
     lead.callbackAnnounced = false; // a freshly (re)scheduled callback must be able to pop again
 
     if (note) appendSessionNote(lead, note);
 
-    state.stats.dials++;
     state.index++;
     saveState();
     render();
@@ -1597,7 +1679,7 @@
       // schedule_callback needs the callback modal's extra input first, not
       // a direct recordOutcome() call — wired separately below.
       if (btn.getAttribute("data-outcome") === "schedule_callback") return;
-      btn.addEventListener("click", function () { recordOutcome(btn.getAttribute("data-outcome"), ""); });
+      btn.addEventListener("click", function () { tryRecordOutcome(btn.getAttribute("data-outcome")); });
     });
     els.nextBtn.addEventListener("click", goNext);
     els.exportBtn.addEventListener("click", exportSession);
@@ -1674,7 +1756,7 @@
 
       if (e.code === "Space") { e.preventDefault(); els.callBtn.click(); }
       else if (e.key === "5") { openCallbackModal(); }
-      else if (KEY_OUTCOME[e.key]) { recordOutcome(KEY_OUTCOME[e.key], ""); }
+      else if (KEY_OUTCOME[e.key]) { tryRecordOutcome(KEY_OUTCOME[e.key]); }
       else if (e.key === "n" || e.key === "N") { openNoteModal(null); }
       else if (e.key === "u" || e.key === "U") { goBack(); }
     });
@@ -1688,19 +1770,20 @@
     var saved = loadSavedState();
     if (saved && saved.leads && saved.leads.length) {
       state = saved;
-      if (!state.stats) state.stats = { dials: 0, answers: 0, closed: 0, sessionStart: null };
-      if (typeof state.stats.closed === "undefined") state.stats.closed = 0;
+      if (!state.stats) state.stats = { sessionStart: null };
       if (!Array.isArray(state.actionHistory)) state.actionHistory = [];
       if (!state.scriptMode) state.scriptMode = "full";
       var nowResume = new Date();
       state.leads.forEach(function (lead, idx) {
         if (typeof lead.firstName === "undefined") lead.firstName = "";
         if (typeof lead.callbackAnnounced === "undefined") lead.callbackAnnounced = isDue(lead.row.callback_at, nowResume);
-        // One-time inference for sessions saved before dialedThisSession
-        // existed: at that point index truly did only ever move forward
-        // sequentially (jumpToLead didn't exist yet), so "before the
-        // current index" reliably meant "already handled this session."
+        // One-time inference for sessions saved before dialedThisSession/
+        // everDialedThisSession existed: at that point index truly did only
+        // ever move forward sequentially (jumpToLead didn't exist yet), so
+        // "before the current index" reliably meant "already handled this
+        // session" for both flags.
         if (typeof lead.dialedThisSession === "undefined") lead.dialedThisSession = idx < state.index;
+        if (typeof lead.everDialedThisSession === "undefined") lead.everDialedThisSession = idx < state.index;
       });
       render();
       renderStats();
@@ -1719,6 +1802,8 @@
       AREA_CODE_TZ: AREA_CODE_TZ, timezoneForPhone: timezoneForPhone,
       localHourInTimezone: localHourInTimezone, gradeRank: gradeRank,
       filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount, remainingCount: remainingCount,
+      dialsCount: dialsCount, answersCount: answersCount, closedCount: closedCount,
+      confirmDestructiveOutcome: confirmDestructiveOutcome,
       appendRowsToQueue: appendRowsToQueue, reorderLeadToIndex: reorderLeadToIndex,
       shouldAnnounceCallback: shouldAnnounceCallback, callbackLeadsSorted: callbackLeadsSorted,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
