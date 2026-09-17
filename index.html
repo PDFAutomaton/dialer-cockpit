@@ -876,14 +876,33 @@
     return isDue(row.callback_at, now) && !alreadyAnnounced;
   }
 
-  // Count of REMAINING queued leads (from `fromIndex` on) with a callback
-  // that's due right now — surfaced in the stats bar so a due callback is
-  // visible at all times, not just when it happens to be the current card.
-  function dueCallbackCount(leads, fromIndex, now) {
+  // Count of leads ANYWHERE in the session with a callback that's due right
+  // now — surfaced in the stats bar so a due callback is visible at all
+  // times, not just when it happens to be the current card. Whole-session,
+  // not position-based (fixed 2026-09-17 alongside remainingCount, same
+  // bug class): a `fromIndex` cutoff would stop counting a genuinely due,
+  // still-unresolved callback the moment jumpToLead moves state.index past
+  // its array position, even though it's still due and nobody touched it.
+  function dueCallbackCount(leads, now) {
     now = now || new Date();
     var count = 0;
-    for (var i = fromIndex; i < leads.length; i++) {
+    for (var i = 0; i < leads.length; i++) {
       if (isDue(leads[i].row.callback_at, now)) count++;
+    }
+    return count;
+  }
+
+  // Count of leads NOT YET LOGGED an outcome for, anywhere in the session —
+  // backs the "Remaining" stat (2026-09-17 fix). MUST be based on
+  // dialedThisSession, never on array position (state.leads.length -
+  // state.index): once jumpToLead lets the operator land on any lead out
+  // of order, position no longer means "processed" — a backward jump would
+  // make this number go UP under the old formula, exactly the bug Abdir
+  // reported ("as if a new lead appeared").
+  function remainingCount(leads) {
+    var count = 0;
+    for (var i = 0; i < leads.length; i++) {
+      if (!leads[i].dialedThisSession) count++;
     }
     return count;
   }
@@ -1133,7 +1152,7 @@
     els.loadScreen.hidden = true;
 
     var lead = currentLead();
-    els.statRemaining.textContent = Math.max(state.leads.length - state.index, 0);
+    els.statRemaining.textContent = remainingCount(state.leads);
 
     if (!lead) {
       els.cardScreen.hidden = true;
@@ -1266,13 +1285,29 @@
     saveState();
     render();
     renderStats();
+    // render()'s auto-focus-and-scroll-to-CALL is built for the normal
+    // flow ("I just logged an outcome, dial the next one immediately") —
+    // wrong intent for a jump, which is "let me check on this lead."
+    // Overriding it here also removes the one plausible mechanism found
+    // for the reported dials-increments-on-jump bug: focus() forces an
+    // out-of-view element into view, which on a touchscreen can shift page
+    // content out from under a still-active finger between touchstart and
+    // touchend, landing the eventual tap on whatever is now underneath —
+    // an outcome button, if the CALL button's position happened to land
+    // there. jumpToLead itself never calls recordOutcome/scheduleCallback
+    // (the only two places stats.dials is ever incremented, confirmed by
+    // reading every call site) or touches stats.dials directly, so a
+    // shifted ghost-tap onto a real outcome button was the only mechanism
+    // that fit the symptom.
+    if (els.callBtn) els.callBtn.blur();
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   function renderStats() {
     els.statDials.textContent = state.stats.dials;
     els.statAnswers.textContent = state.stats.answers;
     els.statClosed.textContent = state.stats.closed;
-    var due = dueCallbackCount(state.leads, state.index, new Date());
+    var due = dueCallbackCount(state.leads, new Date());
     els.statCallbacksDue.textContent = due;
     els.statCallbacksDue.classList.toggle("due", due > 0);
     var hours = state.stats.sessionStart ? (Date.now() - state.stats.sessionStart) / 3600000 : 0;
@@ -1683,7 +1718,7 @@
       normalizePhone: normalizePhone, todayISO: todayISO,
       AREA_CODE_TZ: AREA_CODE_TZ, timezoneForPhone: timezoneForPhone,
       localHourInTimezone: localHourInTimezone, gradeRank: gradeRank,
-      filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount,
+      filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount, remainingCount: remainingCount,
       appendRowsToQueue: appendRowsToQueue, reorderLeadToIndex: reorderLeadToIndex,
       shouldAnnounceCallback: shouldAnnounceCallback, callbackLeadsSorted: callbackLeadsSorted,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
