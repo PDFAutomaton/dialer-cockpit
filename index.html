@@ -34,17 +34,38 @@
   }
   #app { display: flex; flex-direction: column; min-height: 100vh; }
 
-  /* ── Stats bar (always visible) ─────────────────────────────────────── */
+  /* ── Sticky header: stats bar + active-lead bar travel together, so the
+       business name and Export/Undo stay in view no matter how far down
+       the outcome grid the operator has scrolled. ─────────────────────── */
+  #stickyHeader { position: sticky; top: 0; z-index: 10; }
+
   #statsBar {
     display: flex; flex-wrap: wrap; gap: 8px 16px;
     padding: 10px 14px;
     background: var(--card-bg); border-bottom: 1px solid var(--border);
     font-size: clamp(12px, 3.2vw, 14px);
-    position: sticky; top: 0; z-index: 10;
   }
   #statsBar .stat { display: flex; flex-direction: column; align-items: flex-start; }
   #statsBar .stat .val { font-weight: 700; font-size: clamp(16px, 4.5vw, 20px); }
   #statsBar .stat .lbl { color: var(--text-dim); font-size: clamp(10px, 2.6vw, 11px); text-transform: uppercase; letter-spacing: .04em; }
+  #statCallbacksDue.due { color: var(--purple); }
+
+  #activeBar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px;
+    background: #14161c; border-bottom: 1px solid var(--border);
+  }
+  #activeLeadName {
+    flex: 1; min-width: 0; font-weight: 700;
+    font-size: clamp(13px, 3.8vw, 15px);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .active-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .active-actions button {
+    padding: 8px 12px; font-size: clamp(12px, 3.4vw, 13px); font-weight: 700; border-radius: 10px;
+  }
+  #undoBtn { background: var(--amber); color: #2b1900; }
+  #exportBtn { background: var(--border); color: var(--text); }
 
   /* ── Load screen ─────────────────────────────────────────────────────── */
   #loadScreen {
@@ -88,6 +109,12 @@
   #leadRating { font-size: clamp(15px, 4.2vw, 17px); }
   #leadRating .stars { color: var(--amber); }
 
+  #firstNameInput {
+    width: 100%; border-radius: 10px; border: 1px solid var(--border);
+    background: #12141a; color: var(--text); padding: 10px; font: inherit;
+  }
+  #firstNameInput::placeholder { color: var(--text-dim); }
+
   #phoneLink {
     display: block; text-align: center; text-decoration: none;
     font-size: clamp(28px, 9vw, 44px); font-weight: 800; color: var(--text);
@@ -118,11 +145,41 @@
     font-size: clamp(13px, 3.8vw, 15px);
   }
 
-  .script-block {
-    background: #12141a; border: 1px dashed var(--border); border-radius: 12px;
-    padding: 14px; font-size: clamp(14px, 4vw, 16px); line-height: 1.5;
-    white-space: pre-wrap;
+  /* ── Script panel: opener/reason/offer/close (or the short version),
+       plus collapsible objection handling and tone notes. Kept as its own
+       card, separate from the identity card above, since it's now the
+       bulkiest part of the screen. ──────────────────────────────────────── */
+  #scriptPanel {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
+    padding: 16px; display: flex; flex-direction: column; gap: 10px;
+    font-size: clamp(14px, 4vw, 16px); line-height: 1.5;
   }
+  .script-mode-toggle { display: flex; gap: 8px; }
+  .mode-btn { padding: 8px 16px; font-size: clamp(12px, 3.4vw, 13px); font-weight: 700; }
+  .mode-btn.selected { background: var(--accent); color: white; }
+  .script-frame-note { color: var(--text-dim); font-size: 0.85em; font-style: italic; margin: 0; }
+  .script-section { border-top: 1px dashed var(--border); padding-top: 10px; }
+  .script-section:first-child { border-top: none; padding-top: 0; }
+  .script-label {
+    font-weight: 700; font-size: 0.8em; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .script-text { white-space: pre-wrap; }
+
+  #scriptPanel details { border-top: 1px dashed var(--border); padding-top: 10px; }
+  #scriptPanel summary {
+    cursor: pointer; font-weight: 700; color: var(--accent);
+    list-style: none;
+  }
+  #scriptPanel summary::-webkit-details-marker { display: none; }
+  #scriptPanel summary::before { content: "▶ "; }
+  #scriptPanel details[open] summary::before { content: "▼ "; }
+  .objections-rule { color: var(--text-dim); font-size: 0.85em; margin: 8px 0 12px; }
+  .objection-item { margin-bottom: 14px; }
+  .objection-trigger { font-weight: 700; color: var(--amber); margin-bottom: 3px; }
+  .objection-response { white-space: pre-wrap; color: var(--text-dim); font-size: 0.95em; }
+  #toneList { margin: 8px 0 0; padding-left: 20px; color: var(--text-dim); font-size: 0.9em; }
+  #toneList li { margin-bottom: 6px; }
 
   #callBtn {
     display: block; text-align: center; text-decoration: none;
@@ -144,26 +201,12 @@
   .outcome-btn[data-outcome="dead"] { background: var(--red); }
   .outcome-btn[data-outcome="called_talked"] { background: var(--accent); }
   .outcome-btn[data-outcome="booked"] { background: var(--green); color: #06210f; }
-  .outcome-btn[data-outcome="no_answer_vm"] { background: var(--purple); grid-column: 1 / -1; }
   .outcome-btn[data-outcome="schedule_callback"] { background: var(--teal); grid-column: 1 / -1; }
 
   .secondary-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .secondary-row button { flex: 1; min-width: 120px; padding: 12px; font-size: clamp(13px, 3.6vw, 14px); font-weight: 600; }
   #skipBtn { background: var(--amber); color: #2b1900; }
-  #vmScriptBtn { background: var(--border); }
-  #copyDemoPromptBtn, #copyConfirmationBtn { background: var(--border); }
-
-  /* Amendment A6 — Lovable step 2 is static text, not copied, shown right
-     under the Copy Demo Prompt button so it's never missed. */
-  .demo-step2-hint {
-    color: var(--text-dim); font-size: clamp(12px, 3.4vw, 13px);
-    text-align: left; margin: -4px 0 0; padding: 0 2px;
-  }
-
-  #exportBtn {
-    padding: 14px; font-size: clamp(14px, 4vw, 16px); font-weight: 700;
-    background: var(--card-bg); border: 1px solid var(--border);
-  }
+  #copyMockupLinkBtn, #copyPhotoRequestBtn { background: var(--border); }
 
   .kb-hint { display: none; color: var(--text-dim); font-size: 12px; text-align: center; }
 
@@ -200,27 +243,12 @@
   }
   #callbackSave { background: var(--purple); color: white; }
 
-  /* ── VM script full-screen view (Amendment A5) ──────────────────────────── */
-  .vm-script-screen {
-    position: fixed; inset: 0; background: var(--bg); z-index: 200;
-    padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px;
-  }
-  #vmScriptBack {
-    align-self: flex-start; padding: 10px 18px; font-weight: 700;
-    background: var(--border);
-  }
-  .vm-script-text {
-    background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
-    padding: 20px; font-size: clamp(16px, 4.5vw, 20px); line-height: 1.6; white-space: pre-wrap;
-  }
-
   /* ── Desktop: reveal keyboard-shortcut hints, widen layout, 5-across
        outcomes. Mobile stays the primary, fully-usable surface — this is
        additive, not a different app. (Amendment A4) ─────────────────────── */
   @media (min-width: 700px) {
     #cardScreen { max-width: 760px; padding: 24px; gap: 16px; }
-    .outcome-grid { grid-template-columns: repeat(6, 1fr); }
-    .outcome-btn[data-outcome="no_answer_vm"] { grid-column: auto; }
+    .outcome-grid { grid-template-columns: repeat(5, 1fr); }
     .outcome-btn[data-outcome="schedule_callback"] { grid-column: auto; }
     .kb-hint { display: block; }
     #leadName { font-size: 36px; }
@@ -229,21 +257,30 @@
 </head>
 <body>
 <div id="app">
-  <header id="statsBar">
-    <div class="stat"><span class="val" id="statDials">0</span><span class="lbl">Dials</span></div>
-    <div class="stat"><span class="val" id="statPace">0.0</span><span class="lbl">Dials/hr</span></div>
-    <div class="stat"><span class="val" id="statAnswers">0</span><span class="lbl">Answers</span></div>
-    <div class="stat"><span class="val" id="statBooked">0</span><span class="lbl">Booked</span></div>
-    <div class="stat"><span class="val" id="statVM">0</span><span class="lbl">VMs left</span></div>
-    <div class="stat"><span class="val" id="statRemaining">0</span><span class="lbl">Remaining</span></div>
-  </header>
+  <div id="stickyHeader">
+    <header id="statsBar">
+      <div class="stat"><span class="val" id="statDials">0</span><span class="lbl">Dials</span></div>
+      <div class="stat"><span class="val" id="statPace">0.0</span><span class="lbl">Dials/hr</span></div>
+      <div class="stat"><span class="val" id="statAnswers">0</span><span class="lbl">Answers</span></div>
+      <div class="stat"><span class="val" id="statBooked">0</span><span class="lbl">Booked</span></div>
+      <div class="stat"><span class="val" id="statCallbacksDue">0</span><span class="lbl">Callbacks due</span></div>
+      <div class="stat"><span class="val" id="statRemaining">0</span><span class="lbl">Remaining</span></div>
+    </header>
+    <div id="activeBar" hidden>
+      <span id="activeLeadName">—</span>
+      <div class="active-actions">
+        <button id="undoBtn" hidden>↩ Undo last</button>
+        <button id="exportBtn">⬇ Export</button>
+      </div>
+    </div>
+  </div>
 
   <section id="loadScreen">
     <h1>Dialer Cockpit</h1>
     <p>Load a leads CSV to start dialing. Only <code>new</code> / <code>no_answer</code> / <code>callback</code> rows are queued — a no-answer archives the lead permanently (no redial), due callbacks surface first, sorted A → B → C then rating.</p>
     <button id="loadBtn">Load leads</button>
     <input type="file" id="fileInput" accept=".csv" hidden>
-    <p class="kb-hint" style="display:block">space = call &nbsp;·&nbsp; 1-6 = outcomes &nbsp;·&nbsp; n = note</p>
+    <p class="kb-hint" style="display:block">space = call &nbsp;·&nbsp; 1-5 = outcomes &nbsp;·&nbsp; n = note &nbsp;·&nbsp; u = undo</p>
   </section>
 
   <main id="cardScreen" hidden>
@@ -261,10 +298,29 @@
       <div id="leadName"></div>
       <div id="leadMeta"></div>
       <div id="leadRating"></div>
+      <input type="text" id="firstNameInput" placeholder="Contact first name (optional — fills into the script as you learn it)">
       <a id="phoneLink" href="#"></a>
       <a id="mapsLink" href="#" target="_blank" rel="noopener">View on Google Maps →</a>
-      <div class="script-block" id="scriptBlock"></div>
     </div>
+
+    <section id="scriptPanel">
+      <div class="script-mode-toggle">
+        <button type="button" class="mode-btn" id="scriptFullBtn">Full</button>
+        <button type="button" class="mode-btn" id="scriptShortBtn">Short</button>
+      </div>
+      <p class="script-frame-note" id="corePrincipleText"></p>
+      <p class="script-frame-note" id="noAssumptionsText"></p>
+      <div id="scriptSections"></div>
+      <details id="objectionsDetails">
+        <summary>Objection handling</summary>
+        <p class="objections-rule">Never argue. Agree with the objection, then ask one small question. One honest attempt per objection, max.</p>
+        <div id="objectionsList"></div>
+      </details>
+      <details id="toneDetails">
+        <summary>Tone cheat sheet</summary>
+        <ul id="toneList"></ul>
+      </details>
+    </section>
 
     <a id="callBtn" href="#">📞 CALL</a>
 
@@ -273,24 +329,20 @@
       <button class="outcome-btn" data-outcome="dead"><span class="key">2</span>DEAD</button>
       <button class="outcome-btn" data-outcome="called_talked"><span class="key">3</span>CALLED–TALKED</button>
       <button class="outcome-btn" data-outcome="booked"><span class="key">4</span>BOOKED</button>
-      <button class="outcome-btn" data-outcome="no_answer_vm"><span class="key">5</span>NO ANSWER +VM</button>
-      <button class="outcome-btn" data-outcome="schedule_callback" id="scheduleCallbackBtn"><span class="key">6</span>SCHEDULE CALLBACK</button>
+      <button class="outcome-btn" data-outcome="schedule_callback" id="scheduleCallbackBtn"><span class="key">5</span>SCHEDULE CALLBACK</button>
     </div>
 
     <div class="secondary-row">
       <button id="noteBtn">📝 Note (n)</button>
-      <button id="vmScriptBtn">🎙️ VM Script</button>
       <button id="skipBtn" hidden>Skip — outside calling hours</button>
     </div>
 
     <div class="secondary-row">
-      <button id="copyDemoPromptBtn">📋 Copy Demo Prompt</button>
-      <button id="copyConfirmationBtn">📋 Copy Confirmation Text</button>
+      <button id="copyMockupLinkBtn">📋 Copy Mockup Link Text</button>
+      <button id="copyPhotoRequestBtn">📋 Copy Photo Request Text</button>
     </div>
-    <p class="demo-step2-hint" id="demoStep2Hint"></p>
 
-    <button id="exportBtn">⬇ Export session</button>
-    <p class="kb-hint">space = call &nbsp;·&nbsp; 1 no answer · 2 dead · 3 talked · 4 booked · 5 VM · 6 callback &nbsp;·&nbsp; n = note</p>
+    <p class="kb-hint">space = call &nbsp;·&nbsp; 1 no answer · 2 dead · 3 talked · 4 booked · 5 callback &nbsp;·&nbsp; n = note · u = undo</p>
   </main>
 
   <section id="emptyScreen" hidden>
@@ -329,11 +381,6 @@
   </div>
 </div>
 
-<div class="vm-script-screen" id="vmScriptScreen" hidden>
-  <button id="vmScriptBack">← Back</button>
-  <div class="vm-script-text" id="vmScriptText"></div>
-</div>
-
 <script>
 (function () {
   "use strict";
@@ -348,57 +395,130 @@
   // (previously COOLDOWN_HOURS = [4, 48, 96] hours, re-queuing a no-answer
   // lead for a later retry) is REMOVED, not bypassed — that machinery no
   // longer exists anywhere in this file. MAX_ATTEMPTS is now a hard cap of
-  // 1: a single no-answer (or no-answer+VM) archives the lead permanently,
-  // no cooldown, no retry, no redial queue. Does NOT apply to called_talked
-  // or schedule_callback — see applyOutcomeToRow.
+  // 1: a single no-answer archives the lead permanently, no cooldown, no
+  // retry, no redial queue. Does NOT apply to called_talked or
+  // schedule_callback — see applyOutcomeToRow.
   var MAX_ATTEMPTS = 1;
 
-  // Voicemail script — hardcoded here so it's easy to find and edit.
-  // {business_name} is substituted at display time.
-  var VM_SCRIPT_TEXT =
-    "Hi, this is [YOUR NAME] — sorry I missed you. I build simple, " +
-    "professional websites for local businesses, and I noticed " +
-    "{business_name} doesn't have one showing up on Google. I'd love to " +
-    "show you what that could look like — no pressure either way. " +
-    "You can reach me back at [YOUR NUMBER], or I'll try you again soon. Thanks!";
+  // ── Script content (2026-09-16 rewrite) — Abdirahman's real cold-call
+  // script, replacing the old placeholder opener/VM script/demo-prompt/
+  // confirmation-text templates entirely. [First Name] is a literal,
+  // deliberately-manual placeholder (same convention as [MOCKUP_LINK]
+  // below) — Google Places data has no contact-person field, so it can
+  // never be auto-filled from the lead row; it's substituted only when the
+  // operator types it into firstNameInput during the call, otherwise it
+  // stays visible as-is so there's no silent wrong guess. {trade}/{city}/
+  // {rating}/{reviews} ARE auto-filled from the lead row (see fillTemplate).
+  var CORE_PRINCIPLE_TEXT =
+    "Sound like a person, not a pitch. Salespeople talk fast, use polished " +
+    "phrases, and never admit uncertainty. Regular people pause, hedge " +
+    "slightly, and say \"honestly\" and \"I don't know if this matters to " +
+    "you.\" Every line is written to be said, not read.";
 
-  // ── Amendment A6 config — hardcoded, editable here. Both templates take
-  // the same {business_name}/{city}/{category}/{rating}/{review_count}/
-  // {description} substitutions (see fillTemplate below). ─────────────────
-  var DEMO_PROMPT_TEMPLATE =
-    "Build a clean, modern one-page demo website for {business_name}, a " +
-    "{category} business in {city}. Google profile: {rating}★ rating, " +
-    "{review_count} reviews. Description: {description}. Include a hero " +
-    "section with the business name and a call-to-action to call now, a " +
-    "short About section, a services list appropriate for a {category} " +
-    "business, the {rating}★ rating and review count as a trust signal, " +
-    "and a contact section with the phone number. Keep it simple, " +
-    "professional, and mobile-friendly.";
+  var NO_ASSUMPTIONS_TEXT =
+    "Never guess what they're doing (mid-job, busy, slow day). Never guess " +
+    "why their listing is the way it is. Ask instead.";
 
-  // Lovable's two-step flow: step 1 is the prompt above (copied to
-  // clipboard); step 2 is this fixed instruction, always shown underneath
-  // it — never copied, never substituted.
-  var DEMO_PROMPT_STEP_2_TEXT =
-    "Step 2 (after Lovable generates the site): open the preview, grab the " +
-    "live preview link or a screenshot, and use that as the demo you show " +
-    "the lead. Don't publish or deploy anything until they say yes.";
+  var SCRIPT_FULL = {
+    opener:
+      "Hey, is this [First Name]?\n[wait for: yes]\n" +
+      "Hey [First Name] — real quick, this is a cold call, so if you want to " +
+      "hang up I get it. But can I have 30 seconds to tell you why I called?\n" +
+      "[wait for: \"sure / go ahead\"]",
+    reason:
+      "Appreciate it. So — I was looking at {trade} companies around {city} " +
+      "earlier and your listing came up. You've got {rating} stars across " +
+      "{reviews} reviews, which honestly is better than most of the guys " +
+      "around you.\n\nThe only thing I noticed is there's no website linked " +
+      "on your Google listing. And I genuinely don't know if that's on " +
+      "purpose or not — some guys don't want one, some just never got " +
+      "around to it. Which one is it for you?",
+    offer:
+      "That's what most guys say, honestly. So here's the thing — I build " +
+      "websites for {trade} companies, but I do it kind of backwards. " +
+      "Instead of pitching you and asking for money, I just build the thing " +
+      "first. Your reviews, your name on it.\nIf you look at it and go " +
+      "'nah' — I delete it, you never hear from me again. If you like it, " +
+      "then we talk. That's the whole deal.",
+    close:
+      "So here's what I'll do — give me fifteen minutes and I'll text you a " +
+      "link to what your site could look like. You look at it, and if it's " +
+      "not for you, just say so and you never hear from me again. Sound fair?",
+  };
 
-  var CONFIRMATION_TEXT_TEMPLATE =
-    "Hi! Great chatting with you about {business_name}. To confirm — I'll " +
-    "build your new website for [PRICE], ready within a week. I'll need " +
-    "your logo (if you have one) and a couple of photos of your " +
-    "{category} work in {city}. Once I have those I'll get started. " +
-    "Thanks again!";
+  var SCRIPT_SHORT = {
+    text:
+      "Hey, is this [First Name]? — Hey, Abdirahman here, this is a cold " +
+      "call, you can hang up, but can I get 30 seconds?\n[wait for: yes]\n\n" +
+      "I was looking at {trade} companies in {city} — you've got {rating} " +
+      "stars, {reviews} reviews, but no website on your Google listing. Is " +
+      "that on purpose or just never got done?\n[wait for: never got done]\n\n" +
+      "Fair. I build sites for {trade} guys, but backwards — I build yours " +
+      "first, free. Give me fifteen minutes and I'll text you the link. " +
+      "Hate it, I delete it. Like it, we talk. Sound fair?",
+  };
 
-  function fillTemplate(template, row) {
+  var OBJECTIONS = [
+    { trigger: "\"I'm busy right now\"",
+      response: "Totally fine — is there a better time today, or should I just try you another day?" },
+    { trigger: "\"We already have a website\"",
+      response: "Oh — then it might just not be linked to your Google listing, because it's not showing there. Honestly that might be all you need fixed. Are you happy with the site itself, or is it kind of old?\n→ If old/unhappy: offer the mockup as \"a look at what a current one would look like next to your old one.\"\n→ If happy: \"Then just get that link fixed on Google, it's free — takes two minutes. Have a good one.\"" },
+    { trigger: "\"How much is it?\"",
+      response: "Depends what you'd want on it, but the honest answer is I don't know yet and neither do you — that's why I build the thing first, free. If the site's not worth it to you, price never matters anyway. Fair?" },
+    { trigger: "\"Not interested\"",
+      response: "No problem. Can I ask one thing before I go — is it websites you don't want, or just cold calls you don't want?\n→ If \"just don't want a site\": \"Fair enough, have a good one.\" Hang up clean." },
+    { trigger: "\"Just send me something / email me\"",
+      response: "That's exactly the plan — give me fifteen minutes and I'll text you a link to it. Nothing to read, you just look at it. This number work for a text?" },
+    { trigger: "\"Is this a scam / who is this really?\"",
+      response: "Ha — fair question. Abdirahman, out of Bloomington, I build websites for local {trade} companies. You don't pay anything and I don't ask for anything today, that's kind of the whole point. You can look me up before you decide anything." },
+    { trigger: "\"We get enough work from word of mouth\"",
+      response: "That's honestly the best way to get work, I'm not going to argue with that. Only thing I'd say — when someone gets referred to you, first thing they do is Google you. Right now they find the reviews but no site. This just closes that loop. Worth fifteen minutes to see it?" },
+  ];
+
+  var TONE_CHEAT_SHEET = [
+    "Talk slower than feels natural. Rushed = salesman.",
+    "\"Honestly,\" \"kind of,\" \"I don't know\" are fine — imperfection reads as human.",
+    "After any question: shut up. Count to three.",
+    "Smile on the opener. Drop to neutral-casual after.",
+    "If they joke, joke back. If they're gruff, get 20% more direct and cut the padding.",
+    "Never say: \"solutions,\" \"risk-free,\" \"opportunity,\" \"what we do is,\" \"does that make sense?\"",
+  ];
+
+  // Sent after the call, once the 15-minute mockup is ready — link is a
+  // manual placeholder like [First Name] (no mockup-hosting integration
+  // exists to auto-generate one). Per Abdir's flow: no photos are asked
+  // for on the call itself; the mockup is built from the Google listing
+  // data alone, so this message never mentions photos.
+  var MOCKUP_LINK_TEMPLATE =
+    "Hey [First Name] — it's Abdirahman, we just talked on the phone. " +
+    "Here's that link I mentioned: [MOCKUP_LINK]. Take a look whenever, no " +
+    "rush — if it's not for you just let me know, and if you like it we'll " +
+    "talk about the real thing.";
+
+  // Sent only AFTER they've seen the mockup and want the real site — this
+  // is the one point in the flow where photos/logo are ever requested.
+  var PHOTO_REQUEST_TEMPLATE =
+    "Hey [First Name], glad you liked it! To get the real site built out I " +
+    "just need a couple things — your logo if you've got one, and a few " +
+    "photos of your {trade} work in {city}. Whenever you get those over to " +
+    "me I'll get started.";
+
+  function fillTemplate(template, row, firstName) {
     row = row || {};
-    return template
+    var cityShort = (row.city || "").split(",")[0].trim();
+    var out = String(template)
       .replace(/\{business_name\}/g, row.business_name || "this business")
-      .replace(/\{city\}/g, row.city || "your area")
-      .replace(/\{category\}/g, row.category || "local business")
+      .replace(/\{trade\}/g, row.category || "local business")
+      .replace(/\{city\}/g, cityShort || "your area")
       .replace(/\{rating\}/g, row.rating || "")
-      .replace(/\{review_count\}/g, row.review_count || "")
-      .replace(/\{description\}/g, row.description || "");
+      .replace(/\{reviews\}/g, row.review_count || "");
+    if (firstName) out = out.replace(/\[First Name\]/g, firstName);
+    return out;
+  }
+
+  function escapeHtml(s) {
+    return String(s === undefined || s === null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   // ── CSV parsing (RFC4180-ish: handles quoted fields with embedded
@@ -556,9 +676,11 @@
   var state = {
     fileLoaded: false, // distinguishes "no CSV loaded yet" from "loaded but zero dialable rows"
     headers: [],
-    leads: [],       // full queue (already filtered + sorted), each: {row, sessionNote, tz}
+    leads: [],       // full queue (already filtered + sorted), each: {row, sessionNote, tz, firstName}
     index: 0,
-    stats: { dials: 0, answers: 0, booked: 0, vm: 0, sessionStart: null },
+    stats: { dials: 0, answers: 0, booked: 0, sessionStart: null },
+    lastAction: null, // single-level undo snapshot (see snapshotForUndo/applyUndoSnapshot)
+    scriptMode: "full", // "full" | "short"
   };
 
   function gradeRank(priority) {
@@ -592,6 +714,19 @@
     return filtered;
   }
 
+  // Count of REMAINING queued leads (from `fromIndex` on) with a callback
+  // that's due right now — surfaced in the stats bar so a due callback is
+  // visible at all times, not just when it happens to be the current card
+  // (2026-09-16, per Abdir: sort order alone wasn't prominent enough).
+  function dueCallbackCount(leads, fromIndex, now) {
+    now = now || new Date();
+    var count = 0;
+    for (var i = fromIndex; i < leads.length; i++) {
+      if (isDue(leads[i].row.callback_at, now)) count++;
+    }
+    return count;
+  }
+
   // ── Redial policy + callback scheduling ─────────────────────────────────
   // Pure functions (no DOM/state access) so the archive-on-no-answer rule
   // and callback-date math are fully Node-testable — recordOutcome()/
@@ -601,7 +736,6 @@
     dead: "dead",
     called_talked: "called_talked",
     booked: "booked",
-    no_answer_vm: "no_answer", // Amendment A2 — VM is a note, not a new status
   };
 
   function applyOutcomeToRow(row, outcomeKey, now) {
@@ -622,14 +756,11 @@
     };
 
     // Redial policy (2026-08-25, later revision): the cap applies ONLY to
-    // NO ANSWER / NO ANSWER +VM — never to called_talked or schedule_callback
-    // (those are the warmest leads there are and must never be forced dead).
-    // Cap is 1, so any no-answer at all archives the lead permanently: no
-    // cooldown, no retry, no redial queue. "Same handling as the existing
-    // archive/exhausted state" — reuses the dead status + max_attempts_reached
-    // note already established, just triggered on the first attempt instead
-    // of the fourth.
-    var isNoAnswerOutcome = outcomeKey === "no_answer" || outcomeKey === "no_answer_vm";
+    // NO ANSWER — never to called_talked or schedule_callback (those are
+    // the warmest leads there are and must never be forced dead). Cap is 1,
+    // so any no-answer at all archives the lead permanently: no cooldown,
+    // no retry, no redial queue.
+    var isNoAnswerOutcome = outcomeKey === "no_answer";
     if (isNoAnswerOutcome && attempts >= MAX_ATTEMPTS) {
       patch.status = "dead";
       patch.forcedMaxAttempts = true;
@@ -667,6 +798,33 @@
     };
   }
 
+  // ── Undo (2026-09-16) — single-level, applies uniformly to every outcome/
+  // callback action rather than gating a confirm-dialog on "destructive"
+  // outcomes only. Chosen over a per-tap confirm step because confirm
+  // dialogs would add friction to NO ANSWER specifically, which is both
+  // the most common outcome in cold-calling AND the one a miss-click risk
+  // was reported on — that's exactly the wrong action to slow down in a
+  // keyboard/hotkey-driven, one-handed dialing flow. Undo keeps the fast
+  // path untouched and still makes any miss-tap (including a wrong DEAD,
+  // BOOKED, or CALLED-TALKED, not just no-answer) fully recoverable.
+  function snapshotForUndo(lead, leadIndex, stats) {
+    return {
+      leadIndex: leadIndex,
+      rowBefore: JSON.parse(JSON.stringify(lead.row)),
+      sessionNoteBefore: lead.sessionNote,
+      firstNameBefore: lead.firstName || "",
+      statsBefore: JSON.parse(JSON.stringify(stats)),
+    };
+  }
+
+  function applyUndoSnapshot(leads, snapshot) {
+    var lead = leads[snapshot.leadIndex];
+    lead.row = snapshot.rowBefore;
+    lead.sessionNote = snapshot.sessionNoteBefore;
+    lead.firstName = snapshot.firstNameBefore;
+    return { index: snapshot.leadIndex, stats: snapshot.statsBefore };
+  }
+
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -690,39 +848,75 @@
   // render()/wiring, which Node-side tests never do.
   var els = {};
   if (typeof document !== "undefined") {
-    ["statDials","statPace","statAnswers","statBooked","statVM","statRemaining",
+    ["statDials","statPace","statAnswers","statBooked","statCallbacksDue","statRemaining",
      "loadScreen","cardScreen","emptyScreen","loadBtn","fileInput",
      "tzBanner","tzBannerSub","callbackBanner","leadCard","priorityBadge","webPresenceBadge",
-     "leadName","leadMeta","leadRating","phoneLink","mapsLink","scriptBlock",
-     "callBtn","noteBtn","skipBtn","exportBtn","noteModal","noteText","noteSave","noteCancel",
+     "leadName","leadMeta","leadRating","firstNameInput","phoneLink","mapsLink",
+     "scriptFullBtn","scriptShortBtn","scriptSections","corePrincipleText","noAssumptionsText",
+     "objectionsDetails","objectionsList","toneList",
+     "callBtn","noteBtn","skipBtn","noteModal","noteText","noteSave","noteCancel",
      "scheduleCallbackBtn","callbackModal","callbackCustomRow","callbackCustomInput",
-     "callbackNoteText","callbackCancel","callbackSave","vmScriptBtn","vmScriptScreen",
-     "vmScriptText","vmScriptBack","copyDemoPromptBtn","copyConfirmationBtn","demoStep2Hint",
+     "callbackNoteText","callbackCancel","callbackSave",
+     "copyMockupLinkBtn","copyPhotoRequestBtn",
+     "activeBar","activeLeadName","undoBtn","exportBtn",
     ].forEach(function (id) { els[id] = document.getElementById(id); });
-    if (els.demoStep2Hint) els.demoStep2Hint.textContent = DEMO_PROMPT_STEP_2_TEXT; // static, set once
+    if (els.corePrincipleText) els.corePrincipleText.textContent = CORE_PRINCIPLE_TEXT;
+    if (els.noAssumptionsText) els.noAssumptionsText.textContent = NO_ASSUMPTIONS_TEXT;
+    if (els.toneList) {
+      els.toneList.innerHTML = TONE_CHEAT_SHEET.map(function (t) { return "<li>" + escapeHtml(t) + "</li>"; }).join("");
+    }
   }
 
   function currentLead() { return state.leads[state.index] || null; }
 
-  function scriptFor(row) {
-    var name = row.business_name || "this business";
-    var city = row.city || "your area";
-    var category = row.category || "local business";
-    var rating = row.rating || "a great";
-    var reviews = row.review_count || "many";
-    var isFbOnly = (row.web_presence || "").trim() === "FB-only";
+  function scriptSectionHtml(label, text) {
+    return '<div class="script-section"><div class="script-label">' + escapeHtml(label) +
+      '</div><div class="script-text">' + escapeHtml(text) + "</div></div>";
+  }
 
-    var webLine = isFbOnly
-      ? "right now your only web presence is your Facebook page, and a lot of people still check Google first"
-      : "I couldn't find a website for you when I searched — you're basically invisible off of Maps";
+  function renderScriptPanel() {
+    var lead = currentLead();
+    if (!lead || !els.scriptSections) return;
+    var row = lead.row;
+    var firstName = lead.firstName || "";
+    var mode = state.scriptMode || "full";
 
-    return "Hi, this is [YOUR NAME] calling for " + name + " — " + webLine + ", even though you've got a " +
-      rating + "★ rating with " + reviews + " reviews on Google as a " + category + " in " + city + ". " +
-      "I build simple, professional websites for local businesses like yours, usually live within a week. " +
-      "Would it be worth 2 minutes to hear how it works?";
+    if (els.scriptFullBtn) els.scriptFullBtn.classList.toggle("selected", mode === "full");
+    if (els.scriptShortBtn) els.scriptShortBtn.classList.toggle("selected", mode === "short");
+
+    var html = "";
+    if (mode === "short") {
+      html += scriptSectionHtml("Short version", fillTemplate(SCRIPT_SHORT.text, row, firstName));
+    } else {
+      html += scriptSectionHtml("Opener", fillTemplate(SCRIPT_FULL.opener, row, firstName));
+      html += scriptSectionHtml("Reason", fillTemplate(SCRIPT_FULL.reason, row, firstName));
+      html += scriptSectionHtml("Offer", fillTemplate(SCRIPT_FULL.offer, row, firstName));
+      html += scriptSectionHtml("Close", fillTemplate(SCRIPT_FULL.close, row, firstName));
+    }
+    els.scriptSections.innerHTML = html;
+
+    if (els.objectionsDetails && els.objectionsList) {
+      var wasOpen = els.objectionsDetails.open;
+      els.objectionsList.innerHTML = OBJECTIONS.map(function (o) {
+        return '<div class="objection-item"><div class="objection-trigger">' + escapeHtml(o.trigger) +
+          '</div><div class="objection-response">' + escapeHtml(fillTemplate(o.response, row, firstName)) + "</div></div>";
+      }).join("");
+      els.objectionsDetails.open = wasOpen;
+    }
+  }
+
+  function renderActiveBar() {
+    if (!els.activeBar) return;
+    if (!state.fileLoaded) { els.activeBar.hidden = true; return; }
+    els.activeBar.hidden = false;
+    var lead = currentLead();
+    els.activeLeadName.textContent = lead ? (lead.row.business_name || "(no name)") : "No lead loaded";
+    els.undoBtn.hidden = !state.lastAction;
   }
 
   function render() {
+    renderActiveBar();
+
     if (!state.fileLoaded) {
       // Nothing loaded yet — show only the load screen, not the empty-queue
       // message (that's a distinct state: loaded-but-zero-dialable-rows).
@@ -741,7 +935,7 @@
       els.emptyScreen.hidden = false;
       els.emptyScreen.textContent = state.leads.length === 0
         ? "No dialable leads in this CSV (nothing with status new/no_answer, or a due callback)."
-        : "🎉 Session complete — no leads left in the queue. Export when ready.";
+        : "🎉 Session complete — no leads left in the queue. Export anytime from the button up top.";
       return;
     }
 
@@ -768,6 +962,8 @@
     var stars = row.rating ? "★ " + row.rating : "";
     els.leadRating.innerHTML = '<span class="stars">' + stars + "</span> " + (row.review_count ? "(" + row.review_count + " reviews)" : "");
 
+    els.firstNameInput.value = lead.firstName || "";
+
     var digits = normalizePhone(row.phone);
     els.phoneLink.textContent = row.phone || "(no phone)";
     els.phoneLink.href = digits ? "tel:" + digits : "#";
@@ -775,7 +971,7 @@
     els.mapsLink.href = row.maps_url || "#";
     els.mapsLink.style.visibility = row.maps_url ? "visible" : "hidden";
 
-    els.scriptBlock.textContent = scriptFor(row);
+    renderScriptPanel();
 
     var tz = lead.tz;
     var hour = tz ? localHourInTimezone(tz) : null;
@@ -797,7 +993,9 @@
     els.statDials.textContent = state.stats.dials;
     els.statAnswers.textContent = state.stats.answers;
     els.statBooked.textContent = state.stats.booked;
-    els.statVM.textContent = state.stats.vm;
+    var due = dueCallbackCount(state.leads, state.index, new Date());
+    els.statCallbacksDue.textContent = due;
+    els.statCallbacksDue.classList.toggle("due", due > 0);
     var hours = state.stats.sessionStart ? (Date.now() - state.stats.sessionStart) / 3600000 : 0;
     els.statPace.textContent = hours > 0.01 ? (state.stats.dials / hours).toFixed(1) : "0.0";
   }
@@ -810,11 +1008,12 @@
       state.headers = parsed.headers;
       var queue = filterAndSort(parsed.rows);
       state.leads = queue.map(function (row) {
-        return { row: row, sessionNote: "", tz: timezoneForPhone(row.phone) };
+        return { row: row, sessionNote: "", tz: timezoneForPhone(row.phone), firstName: "" };
       });
       state.index = 0;
       state.fileLoaded = true;
-      state.stats = { dials: 0, answers: 0, booked: 0, vm: 0, sessionStart: Date.now() };
+      state.stats = { dials: 0, answers: 0, booked: 0, sessionStart: Date.now() };
+      state.lastAction = null;
       saveState();
       render();
       renderStats();
@@ -837,15 +1036,13 @@
     var lead = currentLead();
     if (!lead) return;
 
+    state.lastAction = snapshotForUndo(lead, state.index, state.stats);
+
     var patch = applyOutcomeToRow(lead.row, outcomeKey, new Date());
     lead.row.attempts = patch.attempts;
     lead.row.status = patch.status;
     lead.row.next_eligible_at = patch.next_eligible_at;
 
-    if (outcomeKey === "no_answer_vm") {
-      appendSessionNote(lead, "vm_left " + todayISO());
-      state.stats.vm++;
-    }
     if (patch.forcedMaxAttempts) {
       appendSessionNote(lead, "max_attempts_reached");
     }
@@ -865,6 +1062,8 @@
     var lead = currentLead();
     if (!lead) return;
 
+    state.lastAction = snapshotForUndo(lead, state.index, state.stats);
+
     var patch = applyCallbackToRow(lead.row, callbackDate, new Date());
     lead.row.attempts = patch.attempts;
     lead.row.status = patch.status;
@@ -882,18 +1081,18 @@
     renderStats();
   }
 
-  function openVmScript() {
-    var lead = currentLead();
-    if (!lead) return;
-    els.vmScriptText.textContent = fillTemplate(VM_SCRIPT_TEXT, lead.row);
-    els.vmScriptScreen.hidden = false;
+  function undoLastAction() {
+    if (!state.lastAction) return;
+    var result = applyUndoSnapshot(state.leads, state.lastAction);
+    state.index = result.index;
+    state.stats = result.stats;
+    state.lastAction = null;
+    saveState();
+    render();
+    renderStats();
   }
 
-  function closeVmScript() {
-    els.vmScriptScreen.hidden = true;
-  }
-
-  // ── Amendment A6 — clipboard copy, with a fallback for contexts where
+  // ── Clipboard copy, with a fallback for contexts where
   // navigator.clipboard isn't available (some file:// origins restrict it). ──
   function fallbackCopy(text) {
     var ta = document.createElement("textarea");
@@ -922,18 +1121,18 @@
     setTimeout(function () { btn.textContent = original; }, 1200);
   }
 
-  function copyDemoPrompt() {
+  function copyMockupLinkText() {
     var lead = currentLead();
     if (!lead) return;
-    copyToClipboard(fillTemplate(DEMO_PROMPT_TEMPLATE, lead.row));
-    flashButtonFeedback(els.copyDemoPromptBtn, "Copied!");
+    copyToClipboard(fillTemplate(MOCKUP_LINK_TEMPLATE, lead.row, lead.firstName));
+    flashButtonFeedback(els.copyMockupLinkBtn, "Copied!");
   }
 
-  function copyConfirmationText() {
+  function copyPhotoRequestText() {
     var lead = currentLead();
     if (!lead) return;
-    copyToClipboard(fillTemplate(CONFIRMATION_TEXT_TEMPLATE, lead.row));
-    flashButtonFeedback(els.copyConfirmationBtn, "Copied!");
+    copyToClipboard(fillTemplate(PHOTO_REQUEST_TEMPLATE, lead.row, lead.firstName));
+    flashButtonFeedback(els.copyPhotoRequestBtn, "Copied!");
   }
 
   function skipCurrent() {
@@ -1032,7 +1231,19 @@
     });
     els.skipBtn.addEventListener("click", skipCurrent);
     els.exportBtn.addEventListener("click", exportSession);
+    els.undoBtn.addEventListener("click", undoLastAction);
     els.callBtn.addEventListener("click", function () { state.stats.sessionStart = state.stats.sessionStart || Date.now(); });
+
+    els.firstNameInput.addEventListener("input", function (e) {
+      var lead = currentLead();
+      if (!lead) return;
+      lead.firstName = e.target.value;
+      renderScriptPanel();
+    });
+    els.firstNameInput.addEventListener("change", saveState);
+
+    els.scriptFullBtn.addEventListener("click", function () { state.scriptMode = "full"; saveState(); renderScriptPanel(); });
+    els.scriptShortBtn.addEventListener("click", function () { state.scriptMode = "short"; saveState(); renderScriptPanel(); });
 
     els.scheduleCallbackBtn.addEventListener("click", openCallbackModal);
     els.callbackCancel.addEventListener("click", closeCallbackModal);
@@ -1052,26 +1263,33 @@
       closeCallbackModal();
     });
 
-    els.vmScriptBtn.addEventListener("click", openVmScript);
-    els.vmScriptBack.addEventListener("click", closeVmScript);
-    els.copyDemoPromptBtn.addEventListener("click", copyDemoPrompt);
-    els.copyConfirmationBtn.addEventListener("click", copyConfirmationText);
+    els.copyMockupLinkBtn.addEventListener("click", copyMockupLinkText);
+    els.copyPhotoRequestBtn.addEventListener("click", copyPhotoRequestText);
 
-    var KEY_OUTCOME = { "1": "no_answer", "2": "dead", "3": "called_talked", "4": "booked", "5": "no_answer_vm" };
+    var KEY_OUTCOME = { "1": "no_answer", "2": "dead", "3": "called_talked", "4": "booked" };
     document.addEventListener("keydown", function (e) {
       if (!els.noteModal.hidden || !els.callbackModal.hidden) return; // don't hijack typing in a modal
       if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
 
       if (e.code === "Space") { e.preventDefault(); els.callBtn.click(); }
-      else if (e.key === "6") { openCallbackModal(); }
+      else if (e.key === "5") { openCallbackModal(); }
       else if (KEY_OUTCOME[e.key]) { recordOutcome(KEY_OUTCOME[e.key], ""); }
       else if (e.key === "n" || e.key === "N") { openNoteModal(null); }
+      else if (e.key === "u" || e.key === "U") { undoLastAction(); }
     });
 
     // ── Resume autosaved session, if any ─────────────────────────────────
+    // Defensive backfill for fields that didn't exist in a session saved
+    // under an older version of this file (2026-09-16 rewrite added
+    // lastAction/scriptMode/per-lead firstName) — a real in-progress test
+    // session must survive this upgrade without a migration step.
     var saved = loadSavedState();
     if (saved && saved.leads && saved.leads.length) {
       state = saved;
+      if (!state.stats) state.stats = { dials: 0, answers: 0, booked: 0, sessionStart: null };
+      if (typeof state.lastAction === "undefined") state.lastAction = null;
+      if (!state.scriptMode) state.scriptMode = "full";
+      state.leads.forEach(function (lead) { if (typeof lead.firstName === "undefined") lead.firstName = ""; });
       render();
       renderStats();
     } else {
@@ -1088,20 +1306,18 @@
       normalizePhone: normalizePhone, todayISO: todayISO,
       AREA_CODE_TZ: AREA_CODE_TZ, timezoneForPhone: timezoneForPhone,
       localHourInTimezone: localHourInTimezone, gradeRank: gradeRank,
-      filterAndSort: filterAndSort, scriptFor: scriptFor,
-      // Amendment A5 (cooldown ladder/attempt-badge removed with the
-      // 2026-08-25 redial-policy change — see applyOutcomeToRow)
+      filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
-      VM_SCRIPT_TEXT: VM_SCRIPT_TEXT,
       formatTimestamp: formatTimestamp, parseTimestamp: parseTimestamp,
       addHours: addHours, isDue: isDue,
       applyOutcomeToRow: applyOutcomeToRow, applyCallbackToRow: applyCallbackToRow,
       computeCallbackDate: computeCallbackDate,
-      // Amendment A6
-      DEMO_PROMPT_TEMPLATE: DEMO_PROMPT_TEMPLATE,
-      DEMO_PROMPT_STEP_2_TEXT: DEMO_PROMPT_STEP_2_TEXT,
-      CONFIRMATION_TEXT_TEMPLATE: CONFIRMATION_TEXT_TEMPLATE,
-      fillTemplate: fillTemplate,
+      snapshotForUndo: snapshotForUndo, applyUndoSnapshot: applyUndoSnapshot,
+      fillTemplate: fillTemplate, escapeHtml: escapeHtml,
+      CORE_PRINCIPLE_TEXT: CORE_PRINCIPLE_TEXT, NO_ASSUMPTIONS_TEXT: NO_ASSUMPTIONS_TEXT,
+      SCRIPT_FULL: SCRIPT_FULL, SCRIPT_SHORT: SCRIPT_SHORT, OBJECTIONS: OBJECTIONS,
+      TONE_CHEAT_SHEET: TONE_CHEAT_SHEET,
+      MOCKUP_LINK_TEMPLATE: MOCKUP_LINK_TEMPLATE, PHOTO_REQUEST_TEMPLATE: PHOTO_REQUEST_TEMPLATE,
     };
   }
 })();
