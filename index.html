@@ -35,8 +35,8 @@
   #app { display: flex; flex-direction: column; min-height: 100vh; }
 
   /* ── Sticky header: stats bar + active-lead bar travel together, so the
-       business name and Export/Undo stay in view no matter how far down
-       the outcome grid the operator has scrolled. ─────────────────────── */
+       business name and Back/Load/Export stay in view no matter how far
+       down the outcome grid the operator has scrolled. ─────────────────── */
   #stickyHeader { position: sticky; top: 0; z-index: 10; }
 
   #statsBar {
@@ -49,14 +49,17 @@
   #statsBar .stat .val { font-weight: 700; font-size: clamp(16px, 4.5vw, 20px); }
   #statsBar .stat .lbl { color: var(--text-dim); font-size: clamp(10px, 2.6vw, 11px); text-transform: uppercase; letter-spacing: .04em; }
   #statCallbacksDue.due { color: var(--purple); }
+  #statClosedWrap { cursor: pointer; }
+  #statClosedWrap .lbl { text-decoration: underline dotted; }
 
   #activeBar {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 8px;
     padding: 8px 14px;
     background: #14161c; border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
   }
   #activeLeadName {
-    flex: 1; min-width: 0; font-weight: 700;
+    flex: 1; min-width: 60px; font-weight: 700;
     font-size: clamp(13px, 3.8vw, 15px);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
@@ -64,8 +67,8 @@
   .active-actions button {
     padding: 8px 12px; font-size: clamp(12px, 3.4vw, 13px); font-weight: 700; border-radius: 10px;
   }
-  #undoBtn { background: var(--amber); color: #2b1900; }
-  #exportBtn { background: var(--border); color: var(--text); }
+  #backBtn { background: var(--amber); color: #2b1900; }
+  #loadMoreBtn, #exportBtn { background: var(--border); color: var(--text); }
 
   /* ── Load screen ─────────────────────────────────────────────────────── */
   #loadScreen {
@@ -146,9 +149,7 @@
   }
 
   /* ── Script panel: opener/reason/offer/close (or the short version),
-       plus collapsible objection handling and tone notes. Kept as its own
-       card, separate from the identity card above, since it's now the
-       bulkiest part of the screen. ──────────────────────────────────────── */
+       plus collapsible objection handling and tone notes. ──────────────── */
   #scriptPanel {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
     padding: 16px; display: flex; flex-direction: column; gap: 10px;
@@ -200,15 +201,33 @@
   .outcome-btn[data-outcome="no_answer"] { background: var(--gray); }
   .outcome-btn[data-outcome="dead"] { background: var(--red); }
   .outcome-btn[data-outcome="called_talked"] { background: var(--accent); }
-  .outcome-btn[data-outcome="booked"] { background: var(--green); color: #06210f; }
+  .outcome-btn[data-outcome="closed"] { background: var(--green); color: #06210f; }
   .outcome-btn[data-outcome="schedule_callback"] { background: var(--teal); grid-column: 1 / -1; }
 
   .secondary-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .secondary-row button { flex: 1; min-width: 120px; padding: 12px; font-size: clamp(13px, 3.6vw, 14px); font-weight: 600; }
-  #skipBtn { background: var(--amber); color: #2b1900; }
+  #nextBtn { background: var(--border); }
   #copyMockupLinkBtn, #copyPhotoRequestBtn { background: var(--border); }
 
   .kb-hint { display: none; color: var(--text-dim); font-size: 12px; text-align: center; }
+
+  /* ── Closed view (item 5) ────────────────────────────────────────────── */
+  #closedScreen { flex: 1; padding: 12px; max-width: 640px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 12px; }
+  #closedScreen h2 { margin: 4px 0 0; font-size: clamp(18px, 5vw, 22px); }
+  #closedBackBtn { align-self: flex-start; padding: 10px 16px; font-weight: 700; }
+  .closed-empty { color: var(--text-dim); text-align: center; padding: 24px; }
+  .closed-item {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .closed-name { font-weight: 800; font-size: clamp(16px, 4.5vw, 19px); }
+  .closed-meta { color: var(--text-dim); font-size: clamp(12px, 3.4vw, 13px); }
+  .closed-toggles { display: flex; gap: 8px; }
+  .closed-toggle {
+    flex: 1; padding: 10px; font-size: clamp(12px, 3.4vw, 13px); font-weight: 700;
+    background: var(--border); color: var(--text-dim);
+  }
+  .closed-toggle.on { background: var(--green); color: #06210f; }
 
   /* ── Modal (note entry) ──────────────────────────────────────────────── */
   .modal {
@@ -262,14 +281,15 @@
       <div class="stat"><span class="val" id="statDials">0</span><span class="lbl">Dials</span></div>
       <div class="stat"><span class="val" id="statPace">0.0</span><span class="lbl">Dials/hr</span></div>
       <div class="stat"><span class="val" id="statAnswers">0</span><span class="lbl">Answers</span></div>
-      <div class="stat"><span class="val" id="statBooked">0</span><span class="lbl">Booked</span></div>
+      <div class="stat" id="statClosedWrap" title="Tap to view closed leads"><span class="val" id="statClosed">0</span><span class="lbl">Closed</span></div>
       <div class="stat"><span class="val" id="statCallbacksDue">0</span><span class="lbl">Callbacks due</span></div>
       <div class="stat"><span class="val" id="statRemaining">0</span><span class="lbl">Remaining</span></div>
     </header>
     <div id="activeBar" hidden>
       <span id="activeLeadName">—</span>
       <div class="active-actions">
-        <button id="undoBtn" hidden>↩ Undo last</button>
+        <button id="backBtn" hidden>← Back</button>
+        <button id="loadMoreBtn">＋ Load</button>
         <button id="exportBtn">⬇ Export</button>
       </div>
     </div>
@@ -280,7 +300,7 @@
     <p>Load a leads CSV to start dialing. Only <code>new</code> / <code>no_answer</code> / <code>callback</code> rows are queued — a no-answer archives the lead permanently (no redial), due callbacks surface first, sorted A → B → C then rating.</p>
     <button id="loadBtn">Load leads</button>
     <input type="file" id="fileInput" accept=".csv" hidden>
-    <p class="kb-hint" style="display:block">space = call &nbsp;·&nbsp; 1-5 = outcomes &nbsp;·&nbsp; n = note &nbsp;·&nbsp; u = undo</p>
+    <p class="kb-hint" style="display:block">space = call &nbsp;·&nbsp; 1-4 = outcomes &nbsp;·&nbsp; 5 = callback &nbsp;·&nbsp; n = note &nbsp;·&nbsp; u = back</p>
   </section>
 
   <main id="cardScreen" hidden>
@@ -328,13 +348,13 @@
       <button class="outcome-btn" data-outcome="no_answer"><span class="key">1</span>NO ANSWER</button>
       <button class="outcome-btn" data-outcome="dead"><span class="key">2</span>DEAD</button>
       <button class="outcome-btn" data-outcome="called_talked"><span class="key">3</span>CALLED–TALKED</button>
-      <button class="outcome-btn" data-outcome="booked"><span class="key">4</span>BOOKED</button>
+      <button class="outcome-btn" data-outcome="closed"><span class="key">4</span>CLOSED</button>
       <button class="outcome-btn" data-outcome="schedule_callback" id="scheduleCallbackBtn"><span class="key">5</span>SCHEDULE CALLBACK</button>
     </div>
 
     <div class="secondary-row">
       <button id="noteBtn">📝 Note (n)</button>
-      <button id="skipBtn" hidden>Skip — outside calling hours</button>
+      <button id="nextBtn">Next → (skip, no log)</button>
     </div>
 
     <div class="secondary-row">
@@ -342,11 +362,17 @@
       <button id="copyPhotoRequestBtn">📋 Copy Photo Request Text</button>
     </div>
 
-    <p class="kb-hint">space = call &nbsp;·&nbsp; 1 no answer · 2 dead · 3 talked · 4 booked · 5 callback &nbsp;·&nbsp; n = note · u = undo</p>
+    <p class="kb-hint">space = call &nbsp;·&nbsp; 1 no answer · 2 dead · 3 talked · 4 closed · 5 callback &nbsp;·&nbsp; n = note · u = back</p>
   </main>
 
   <section id="emptyScreen" hidden>
     No dialable leads in this CSV (nothing with status <code>new</code>, <code>no_answer</code>, or a due <code>callback</code>).
+  </section>
+
+  <section id="closedScreen" hidden>
+    <button id="closedBackBtn">← Back to dialing</button>
+    <h2>Closed leads (<span id="closedCount">0</span>)</h2>
+    <div id="closedList"></div>
   </section>
 </div>
 
@@ -390,6 +416,11 @@
   // though it's its own status distinct from new/no_answer.
   var LOAD_STATUSES = ["new", "no_answer", "callback"];
 
+  // How often to check for a callback that just became due while the app
+  // sits open (2026-09-17, item 4) — sort order alone only helps once the
+  // operator reloads/re-lands on that lead; this catches it live.
+  var CALLBACK_CHECK_INTERVAL_MS = 30000;
+
   // ── Redial policy config — configurable here ────────────────────────────
   // Changed (2026-08-25, later revision): the escalating cooldown ladder
   // (previously COOLDOWN_HOURS = [4, 48, 96] hours, re-queuing a no-answer
@@ -401,14 +432,15 @@
   var MAX_ATTEMPTS = 1;
 
   // ── Script content (2026-09-16 rewrite) — Abdirahman's real cold-call
-  // script, replacing the old placeholder opener/VM script/demo-prompt/
-  // confirmation-text templates entirely. [First Name] is a literal,
-  // deliberately-manual placeholder (same convention as [MOCKUP_LINK]
-  // below) — Google Places data has no contact-person field, so it can
-  // never be auto-filled from the lead row; it's substituted only when the
-  // operator types it into firstNameInput during the call, otherwise it
-  // stays visible as-is so there's no silent wrong guess. {trade}/{city}/
-  // {rating}/{reviews} ARE auto-filled from the lead row (see fillTemplate).
+  // script. [First Name] is a literal, deliberately-manual placeholder
+  // (same convention as [MOCKUP_LINK] below) — Google Places data has no
+  // contact-person field, so it can never be auto-filled from the lead
+  // row; it's substituted only when the operator types it into
+  // firstNameInput during the call, otherwise it stays visible as-is so
+  // there's no silent wrong guess. {trade}/{city}/{rating}/{reviews}
+  // auto-fill from the lead row via fillTemplate (see there for the
+  // 2026-09-17 fix making a literal "unknown" category degrade the same
+  // way a blank one already did).
   var CORE_PRINCIPLE_TEXT =
     "Sound like a person, not a pitch. Salespeople talk fast, use polished " +
     "phrases, and never admit uncertainty. Regular people pause, hedge " +
@@ -503,13 +535,25 @@
     "photos of your {trade} work in {city}. Whenever you get those over to " +
     "me I'll get started.";
 
+  // A literal "unknown" category (a real, root-caused data gap in
+  // import_maps_urls.py — see that file's _category_from_place, fixed
+  // 2026-09-17) must degrade exactly like a blank one, not render verbatim
+  // as "I was looking at unknown companies..." — plain `|| fallback` only
+  // catches falsy values, not the literal string, so this needs its own check.
+  function isUsableField(value) {
+    var v = (value || "").trim();
+    return v.length > 0 && v.toLowerCase() !== "unknown";
+  }
+
   function fillTemplate(template, row, firstName) {
     row = row || {};
     var cityShort = (row.city || "").split(",")[0].trim();
+    var trade = isUsableField(row.category) ? row.category : "local business";
+    var city = isUsableField(cityShort) ? cityShort : "your area";
     var out = String(template)
       .replace(/\{business_name\}/g, row.business_name || "this business")
-      .replace(/\{trade\}/g, row.category || "local business")
-      .replace(/\{city\}/g, cityShort || "your area")
+      .replace(/\{trade\}/g, trade)
+      .replace(/\{city\}/g, city)
       .replace(/\{rating\}/g, row.rating || "")
       .replace(/\{reviews\}/g, row.review_count || "");
     if (firstName) out = out.replace(/\[First Name\]/g, firstName);
@@ -676,12 +720,13 @@
   var state = {
     fileLoaded: false, // distinguishes "no CSV loaded yet" from "loaded but zero dialable rows"
     headers: [],
-    leads: [],       // full queue (already filtered + sorted), each: {row, sessionNote, tz, firstName}
+    leads: [],       // full queue (already filtered + sorted), each: {row, sessionNote, tz, firstName, callbackAnnounced}
     index: 0,
-    stats: { dials: 0, answers: 0, booked: 0, sessionStart: null },
-    lastAction: null, // single-level undo snapshot (see snapshotForUndo/applyUndoSnapshot)
+    stats: { dials: 0, answers: 0, closed: 0, sessionStart: null },
+    actionHistory: [], // stack of snapshots for goBack() — see snapshotForUndo/applyUndoSnapshot
     scriptMode: "full", // "full" | "short"
   };
+  var showingClosed = false; // transient UI mode, not persisted — always reopens on the dial view
 
   function gradeRank(priority) {
     var p = (priority || "").trim().toUpperCase();
@@ -689,6 +734,22 @@
     if (p.indexOf("B") === 0) return 1;
     if (p.indexOf("C") === 0) return 2;
     return 3;
+  }
+
+  // Shared by filterAndSort (initial load) and appendRowsToQueue (item 1 —
+  // appending more leads mid-session) so due-callback-first/priority
+  // ordering is defined exactly once.
+  function priorityComparator(now) {
+    return function (a, b) {
+      var aDue = isDue(a.callback_at, now) ? 0 : 1;
+      var bDue = isDue(b.callback_at, now) ? 0 : 1;
+      if (aDue !== bDue) return aDue - bDue; // due callbacks surface first, before priority sort
+      var rankDiff = gradeRank(a.priority) - gradeRank(b.priority);
+      if (rankDiff !== 0) return rankDiff;
+      var ratingA = parseFloat(a.rating) || -1;
+      var ratingB = parseFloat(b.rating) || -1;
+      return ratingB - ratingA;
+    };
   }
 
   function filterAndSort(rows, now) {
@@ -701,23 +762,62 @@
     var filtered = rows.filter(function (r) {
       return LOAD_STATUSES.indexOf((r.status || "").trim()) !== -1;
     });
-    filtered.sort(function (a, b) {
-      var aDue = isDue(a.callback_at, now) ? 0 : 1;
-      var bDue = isDue(b.callback_at, now) ? 0 : 1;
-      if (aDue !== bDue) return aDue - bDue; // due callbacks surface first, before priority sort
-      var rankDiff = gradeRank(a.priority) - gradeRank(b.priority);
-      if (rankDiff !== 0) return rankDiff;
-      var ratingA = parseFloat(a.rating) || -1;
-      var ratingB = parseFloat(b.rating) || -1;
-      return ratingB - ratingA;
-    });
+    filtered.sort(priorityComparator(now));
     return filtered;
+  }
+
+  function makeLeadObject(row, now) {
+    return {
+      row: row, sessionNote: "", tz: timezoneForPhone(row.phone), firstName: "",
+      // Already-due-at-load callbacks don't need the live popup (item 4) —
+      // they're already visible via sort order + the stats-bar count; only
+      // ones that become due WHILE the session is open should announce.
+      callbackAnnounced: isDue(row.callback_at, now),
+    };
+  }
+
+  // Item 1 — "Load leads" available at all times, with an append mode that
+  // keeps dialed history intact. Only the REMAINING (not-yet-reached)
+  // portion of the queue is re-sorted with the new rows folded in; already-
+  // dialed leads (before `existingIndex`) are left untouched so undo/back
+  // history and stats stay meaningful.
+  function appendRowsToQueue(existingLeads, existingIndex, newRows, now) {
+    now = now || new Date();
+    var existingPhones = {};
+    existingLeads.forEach(function (lead) {
+      var p = normalizePhone(lead.row.phone);
+      if (p) existingPhones[p] = true;
+    });
+    var freshRows = filterAndSort(newRows, now).filter(function (row) {
+      var p = normalizePhone(row.phone);
+      return !p || !existingPhones[p];
+    });
+    var newLeadObjs = freshRows.map(function (row) { return makeLeadObject(row, now); });
+    var already = existingLeads.slice(0, existingIndex);
+    var remaining = existingLeads.slice(existingIndex).concat(newLeadObjs);
+    remaining.sort(function (a, b) { return priorityComparator(now)(a.row, b.row); });
+    return already.concat(remaining);
+  }
+
+  // Item 4 — moves the lead at `fromIndex` to `toIndex` (used to bring a
+  // just-became-due callback to the front of the remaining queue). Pure/
+  // non-mutating (returns a new array) for testability. No-op if the lead
+  // is already at or before the target.
+  function reorderLeadToIndex(leads, fromIndex, toIndex) {
+    if (fromIndex <= toIndex) return leads.slice();
+    var copy = leads.slice();
+    var item = copy.splice(fromIndex, 1)[0];
+    copy.splice(toIndex, 0, item);
+    return copy;
+  }
+
+  function shouldAnnounceCallback(row, alreadyAnnounced, now) {
+    return isDue(row.callback_at, now) && !alreadyAnnounced;
   }
 
   // Count of REMAINING queued leads (from `fromIndex` on) with a callback
   // that's due right now — surfaced in the stats bar so a due callback is
-  // visible at all times, not just when it happens to be the current card
-  // (2026-09-16, per Abdir: sort order alone wasn't prominent enough).
+  // visible at all times, not just when it happens to be the current card.
   function dueCallbackCount(leads, fromIndex, now) {
     now = now || new Date();
     var count = 0;
@@ -731,22 +831,25 @@
   // Pure functions (no DOM/state access) so the archive-on-no-answer rule
   // and callback-date math are fully Node-testable — recordOutcome()/
   // scheduleCallback() below are thin DOM-coupled wrappers around these.
+  // "booked" RENAMED to "closed" 2026-09-17 (Abdir: scheduled callback
+  // already covers booking; closed means they paid).
   var OUTCOME_STATUS_MAP = {
     no_answer: "no_answer",
     dead: "dead",
     called_talked: "called_talked",
-    booked: "booked",
+    closed: "closed",
   };
 
   function applyOutcomeToRow(row, outcomeKey, now) {
     now = now || new Date();
     var currentAttempts = parseInt(row.attempts, 10) || 0;
-    // Counter still climbs on every outcome that isn't DEAD/BOOKED — a
-    // genuine conversation or a scheduled callback still counts toward it.
-    // Purely informational now: nothing reads it to gate a cooldown/redial
-    // any more (that ladder is removed, not bypassed — see MAX_ATTEMPTS above).
-    var incrementsAttempts = outcomeKey !== "dead" && outcomeKey !== "booked";
-    var attempts = incrementsAttempts ? currentAttempts + 1 : currentAttempts;
+    // 2026-09-17 — attempts now increments on EVERY outcome, including DEAD
+    // and CLOSED (previously excluded, matching the old BOOKED behavior).
+    // That exclusion silently under-recorded real dial history (Abdir: "I
+    // dialed them" — a closed or dead lead was still an actual attempt).
+    // Safe: the no-answer cap check below is scoped to `no_answer` only and
+    // never reads this exclusion, so which leads auto-archive is unchanged.
+    var attempts = currentAttempts + 1;
 
     var patch = {
       attempts: String(attempts),
@@ -784,12 +887,8 @@
   function applyCallbackToRow(row, callbackDate, now) {
     now = now || new Date();
     var currentAttempts = parseInt(row.attempts, 10) || 0;
-    var attempts = currentAttempts + 1; // schedule_callback isn't DEAD/BOOKED -> increments
+    var attempts = currentAttempts + 1; // scheduling a callback is a real dial too
 
-    // The max-attempts cap never applies here (2026-08-25 correction) — a
-    // scheduled callback is a warm lead, not a stalled one. The counter
-    // still climbs (a Sheet-visible signal of how many touches this lead
-    // has had) but it can never force this row to dead.
     return {
       attempts: String(attempts),
       status: "callback",
@@ -798,15 +897,13 @@
     };
   }
 
-  // ── Undo (2026-09-16) — single-level, applies uniformly to every outcome/
-  // callback action rather than gating a confirm-dialog on "destructive"
-  // outcomes only. Chosen over a per-tap confirm step because confirm
-  // dialogs would add friction to NO ANSWER specifically, which is both
-  // the most common outcome in cold-calling AND the one a miss-click risk
-  // was reported on — that's exactly the wrong action to slow down in a
-  // keyboard/hotkey-driven, one-handed dialing flow. Undo keeps the fast
-  // path untouched and still makes any miss-tap (including a wrong DEAD,
-  // BOOKED, or CALLED-TALKED, not just no-answer) fully recoverable.
+  // ── Back/Next (item 3, 2026-09-17) — replaces the previous single-level
+  // "Undo last" with a real history stack: Back pops the most recent
+  // outcome/callback/skip and restores the lead to exactly its pre-action
+  // state, letting the operator re-log it; repeated taps walk further back
+  // ("accidents happen at volume" — Abdir). Next just skips forward without
+  // logging anything (also pushes a history entry, so a skip is itself
+  // undoable via Back, for symmetry).
   function snapshotForUndo(lead, leadIndex, stats) {
     return {
       leadIndex: leadIndex,
@@ -848,17 +945,18 @@
   // render()/wiring, which Node-side tests never do.
   var els = {};
   if (typeof document !== "undefined") {
-    ["statDials","statPace","statAnswers","statBooked","statCallbacksDue","statRemaining",
-     "loadScreen","cardScreen","emptyScreen","loadBtn","fileInput",
+    ["statDials","statPace","statAnswers","statClosed","statClosedWrap","statCallbacksDue","statRemaining",
+     "loadScreen","cardScreen","emptyScreen","closedScreen","loadBtn","fileInput",
      "tzBanner","tzBannerSub","callbackBanner","leadCard","priorityBadge","webPresenceBadge",
      "leadName","leadMeta","leadRating","firstNameInput","phoneLink","mapsLink",
      "scriptFullBtn","scriptShortBtn","scriptSections","corePrincipleText","noAssumptionsText",
      "objectionsDetails","objectionsList","toneList",
-     "callBtn","noteBtn","skipBtn","noteModal","noteText","noteSave","noteCancel",
+     "callBtn","noteBtn","nextBtn","noteModal","noteText","noteSave","noteCancel",
      "scheduleCallbackBtn","callbackModal","callbackCustomRow","callbackCustomInput",
      "callbackNoteText","callbackCancel","callbackSave",
      "copyMockupLinkBtn","copyPhotoRequestBtn",
-     "activeBar","activeLeadName","undoBtn","exportBtn",
+     "activeBar","activeLeadName","backBtn","loadMoreBtn","exportBtn",
+     "closedBackBtn","closedCount","closedList",
     ].forEach(function (id) { els[id] = document.getElementById(id); });
     if (els.corePrincipleText) els.corePrincipleText.textContent = CORE_PRINCIPLE_TEXT;
     if (els.noAssumptionsText) els.noAssumptionsText.textContent = NO_ASSUMPTIONS_TEXT;
@@ -911,11 +1009,21 @@
     els.activeBar.hidden = false;
     var lead = currentLead();
     els.activeLeadName.textContent = lead ? (lead.row.business_name || "(no name)") : "No lead loaded";
-    els.undoBtn.hidden = !state.lastAction;
+    els.backBtn.hidden = state.actionHistory.length === 0;
   }
 
   function render() {
     renderActiveBar();
+
+    if (showingClosed) {
+      els.loadScreen.hidden = true;
+      els.cardScreen.hidden = true;
+      els.emptyScreen.hidden = true;
+      els.closedScreen.hidden = false;
+      renderClosedScreen();
+      return;
+    }
+    els.closedScreen.hidden = true;
 
     if (!state.fileLoaded) {
       // Nothing loaded yet — show only the load screen, not the empty-queue
@@ -935,7 +1043,7 @@
       els.emptyScreen.hidden = false;
       els.emptyScreen.textContent = state.leads.length === 0
         ? "No dialable leads in this CSV (nothing with status new/no_answer, or a due callback)."
-        : "🎉 Session complete — no leads left in the queue. Export anytime from the button up top.";
+        : "🎉 Session complete — no leads left in the queue. Load more or export anytime from the buttons up top.";
       return;
     }
 
@@ -975,13 +1083,9 @@
 
     var tz = lead.tz;
     var hour = tz ? localHourInTimezone(tz) : null;
+    els.tzBanner.hidden = !(hour !== null && (hour < 8 || hour >= 20));
     if (hour !== null && (hour < 8 || hour >= 20)) {
-      els.tzBanner.hidden = false;
       els.tzBannerSub.textContent = "Local time there is currently " + hour + ":00 (" + tz + ")";
-      els.skipBtn.hidden = false;
-    } else {
-      els.tzBanner.hidden = true;
-      els.skipBtn.hidden = true;
     }
 
     // Focus the CALL button so the next dial (after an outcome is tapped
@@ -989,10 +1093,33 @@
     els.callBtn.focus();
   }
 
+  function renderClosedScreen() {
+    if (!els.closedList) return;
+    var closedLeads = state.leads.filter(function (l) { return l.row.status === "closed"; });
+    els.closedCount.textContent = closedLeads.length;
+    if (!closedLeads.length) {
+      els.closedList.innerHTML = '<p class="closed-empty">No closed leads yet.</p>';
+      return;
+    }
+    els.closedList.innerHTML = closedLeads.map(function (lead) {
+      var row = lead.row;
+      var idx = state.leads.indexOf(lead);
+      var delivered = row.delivered === "yes";
+      var paid = row.paid === "yes";
+      return '<div class="closed-item">' +
+        '<div class="closed-name">' + escapeHtml(row.business_name || "(no name)") + '</div>' +
+        '<div class="closed-meta">Closed ' + escapeHtml(row.closed_at || "—") + '</div>' +
+        '<div class="closed-toggles">' +
+          '<button type="button" class="closed-toggle' + (delivered ? " on" : "") + '" data-leadidx="' + idx + '" data-field="delivered">' + (delivered ? "✓ Delivered" : "Not delivered") + '</button>' +
+          '<button type="button" class="closed-toggle' + (paid ? " on" : "") + '" data-leadidx="' + idx + '" data-field="paid">' + (paid ? "✓ Paid" : "Not paid") + '</button>' +
+        '</div></div>';
+    }).join("");
+  }
+
   function renderStats() {
     els.statDials.textContent = state.stats.dials;
     els.statAnswers.textContent = state.stats.answers;
-    els.statBooked.textContent = state.stats.booked;
+    els.statClosed.textContent = state.stats.closed;
     var due = dueCallbackCount(state.leads, state.index, new Date());
     els.statCallbacksDue.textContent = due;
     els.statCallbacksDue.classList.toggle("due", due > 0);
@@ -1001,19 +1128,26 @@
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────
-  function loadFile(file) {
+  function loadFile(file, mode) {
     var reader = new FileReader();
     reader.onload = function (e) {
       var parsed = parseCSV(e.target.result);
-      state.headers = parsed.headers;
-      var queue = filterAndSort(parsed.rows);
-      state.leads = queue.map(function (row) {
-        return { row: row, sessionNote: "", tz: timezoneForPhone(row.phone), firstName: "" };
-      });
-      state.index = 0;
+      var now = new Date();
+      if (mode === "append" && state.fileLoaded) {
+        // Item 1 — append to the current session: dialed history (rows
+        // before state.index) is untouched; the new rows are filtered/
+        // deduped/sorted into the remaining queue.
+        state.headers = parsed.headers; // last-loaded CSV's headers win for export column set
+        state.leads = appendRowsToQueue(state.leads, state.index, parsed.rows, now);
+      } else {
+        state.headers = parsed.headers;
+        var queue = filterAndSort(parsed.rows, now);
+        state.leads = queue.map(function (row) { return makeLeadObject(row, now); });
+        state.index = 0;
+        state.stats = { dials: 0, answers: 0, closed: 0, sessionStart: Date.now() };
+        state.actionHistory = [];
+      }
       state.fileLoaded = true;
-      state.stats = { dials: 0, answers: 0, booked: 0, sessionStart: Date.now() };
-      state.lastAction = null;
       saveState();
       render();
       renderStats();
@@ -1036,12 +1170,15 @@
     var lead = currentLead();
     if (!lead) return;
 
-    state.lastAction = snapshotForUndo(lead, state.index, state.stats);
+    state.actionHistory.push(snapshotForUndo(lead, state.index, state.stats));
 
     var patch = applyOutcomeToRow(lead.row, outcomeKey, new Date());
     lead.row.attempts = patch.attempts;
     lead.row.status = patch.status;
     lead.row.next_eligible_at = patch.next_eligible_at;
+    if (outcomeKey === "closed" && !lead.row.closed_at) {
+      lead.row.closed_at = formatTimestamp(new Date());
+    }
 
     if (patch.forcedMaxAttempts) {
       appendSessionNote(lead, "max_attempts_reached");
@@ -1049,8 +1186,8 @@
     if (extraNote) appendSessionNote(lead, extraNote);
 
     state.stats.dials++;
-    if (outcomeKey === "called_talked" || outcomeKey === "booked") state.stats.answers++;
-    if (outcomeKey === "booked") state.stats.booked++;
+    if (outcomeKey === "called_talked" || outcomeKey === "closed") state.stats.answers++;
+    if (outcomeKey === "closed") state.stats.closed++;
 
     state.index++;
     saveState();
@@ -1062,16 +1199,14 @@
     var lead = currentLead();
     if (!lead) return;
 
-    state.lastAction = snapshotForUndo(lead, state.index, state.stats);
+    state.actionHistory.push(snapshotForUndo(lead, state.index, state.stats));
 
     var patch = applyCallbackToRow(lead.row, callbackDate, new Date());
     lead.row.attempts = patch.attempts;
     lead.row.status = patch.status;
     lead.row.callback_at = patch.callback_at;
+    lead.callbackAnnounced = false; // a freshly (re)scheduled callback must be able to pop again
 
-    if (patch.forcedMaxAttempts) {
-      appendSessionNote(lead, "max_attempts_reached");
-    }
     if (note) appendSessionNote(lead, note);
 
     state.stats.dials++;
@@ -1081,15 +1216,47 @@
     renderStats();
   }
 
-  function undoLastAction() {
-    if (!state.lastAction) return;
-    var result = applyUndoSnapshot(state.leads, state.lastAction);
+  function goBack() {
+    if (!state.actionHistory.length) return;
+    var snapshot = state.actionHistory.pop();
+    var result = applyUndoSnapshot(state.leads, snapshot);
     state.index = result.index;
     state.stats = result.stats;
-    state.lastAction = null;
     saveState();
     render();
     renderStats();
+  }
+
+  function goNext() {
+    var lead = currentLead();
+    if (!lead) return;
+    state.actionHistory.push(snapshotForUndo(lead, state.index, state.stats));
+    state.index++;
+    saveState();
+    render();
+  }
+
+  // ── Item 4 — callback-due popup ──────────────────────────────────────────
+  function checkForNewlyDueCallbacks() {
+    if (!state.fileLoaded || showingClosed) return;
+    if (!els.noteModal.hidden || !els.callbackModal.hidden) return; // don't interrupt
+    var now = new Date();
+    for (var i = state.index; i < state.leads.length; i++) {
+      var lead = state.leads[i];
+      if (shouldAnnounceCallback(lead.row, lead.callbackAnnounced, now)) {
+        lead.callbackAnnounced = true;
+        saveState();
+        var bringUp = window.confirm(
+          "📅 Callback due: " + (lead.row.business_name || "(no name)") + "\n\n" +
+          "OK = bring it up next\nCancel = keep dialing in order (it'll stay visible in the Callbacks due count)"
+        );
+        if (bringUp) {
+          state.leads = reorderLeadToIndex(state.leads, i, state.index);
+          render();
+        }
+        return; // one per tick — avoid stacking confirms if several came due at once
+      }
+    }
   }
 
   // ── Clipboard copy, with a fallback for contexts where
@@ -1135,22 +1302,10 @@
     flashButtonFeedback(els.copyPhotoRequestBtn, "Copied!");
   }
 
-  function skipCurrent() {
-    state.index++;
-    saveState();
-    render();
-  }
-
   function exportSession() {
     var headers = state.headers.slice();
-    ["status", "notes", "attempts", "next_eligible_at", "callback_at"].forEach(function (h) {
+    ["status", "notes", "attempts", "next_eligible_at", "callback_at", "closed_at", "delivered", "paid"].forEach(function (h) {
       if (headers.indexOf(h) === -1) headers.push(h);
-    });
-
-    var byPhone = {};
-    state.leads.forEach(function (lead) {
-      var p = normalizePhone(lead.row.phone);
-      if (p) byPhone[p] = lead;
     });
 
     // Export every row that was part of this session's loaded queue.
@@ -1203,6 +1358,7 @@
   // Everything below actually WIRES to the page and runs render() — guarded
   // so this file stays require()-able from Node for testing the pure
   // functions above (see module.exports at the very end).
+  var pendingLoadMode = "new";
   if (typeof document !== "undefined") {
     els.noteBtn.addEventListener("click", function () { openNoteModal(null); });
     els.noteCancel.addEventListener("click", closeNoteModal);
@@ -1218,9 +1374,16 @@
     });
 
     // ── Wiring ─────────────────────────────────────────────────────────────
-    els.loadBtn.addEventListener("click", function () { els.fileInput.click(); });
+    els.loadBtn.addEventListener("click", function () { pendingLoadMode = "new"; els.fileInput.click(); });
+    els.loadMoreBtn.addEventListener("click", function () {
+      pendingLoadMode = state.fileLoaded && window.confirm(
+        "OK = append these to the leads already loaded (keeps today's dial history, sorted in).\n" +
+        "Cancel = start a brand-new session (replaces everything currently loaded)."
+      ) ? "append" : "new";
+      els.fileInput.click();
+    });
     els.fileInput.addEventListener("change", function (e) {
-      if (e.target.files && e.target.files[0]) loadFile(e.target.files[0]);
+      if (e.target.files && e.target.files[0]) loadFile(e.target.files[0], pendingLoadMode);
     });
 
     document.querySelectorAll(".outcome-btn").forEach(function (btn) {
@@ -1229,9 +1392,9 @@
       if (btn.getAttribute("data-outcome") === "schedule_callback") return;
       btn.addEventListener("click", function () { recordOutcome(btn.getAttribute("data-outcome"), ""); });
     });
-    els.skipBtn.addEventListener("click", skipCurrent);
+    els.nextBtn.addEventListener("click", goNext);
     els.exportBtn.addEventListener("click", exportSession);
-    els.undoBtn.addEventListener("click", undoLastAction);
+    els.backBtn.addEventListener("click", goBack);
     els.callBtn.addEventListener("click", function () { state.stats.sessionStart = state.stats.sessionStart || Date.now(); });
 
     els.firstNameInput.addEventListener("input", function (e) {
@@ -1266,7 +1429,22 @@
     els.copyMockupLinkBtn.addEventListener("click", copyMockupLinkText);
     els.copyPhotoRequestBtn.addEventListener("click", copyPhotoRequestText);
 
-    var KEY_OUTCOME = { "1": "no_answer", "2": "dead", "3": "called_talked", "4": "booked" };
+    // ── Closed view (item 5) ────────────────────────────────────────────
+    els.statClosedWrap.addEventListener("click", function () { showingClosed = true; render(); });
+    els.closedBackBtn.addEventListener("click", function () { showingClosed = false; render(); });
+    els.closedList.addEventListener("click", function (e) {
+      var btn = e.target.closest(".closed-toggle");
+      if (!btn) return;
+      var idx = parseInt(btn.getAttribute("data-leadidx"), 10);
+      var field = btn.getAttribute("data-field");
+      var lead = state.leads[idx];
+      if (!lead) return;
+      lead.row[field] = lead.row[field] === "yes" ? "" : "yes";
+      saveState();
+      renderClosedScreen();
+    });
+
+    var KEY_OUTCOME = { "1": "no_answer", "2": "dead", "3": "called_talked", "4": "closed" };
     document.addEventListener("keydown", function (e) {
       if (!els.noteModal.hidden || !els.callbackModal.hidden) return; // don't hijack typing in a modal
       if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
@@ -1275,21 +1453,27 @@
       else if (e.key === "5") { openCallbackModal(); }
       else if (KEY_OUTCOME[e.key]) { recordOutcome(KEY_OUTCOME[e.key], ""); }
       else if (e.key === "n" || e.key === "N") { openNoteModal(null); }
-      else if (e.key === "u" || e.key === "U") { undoLastAction(); }
+      else if (e.key === "u" || e.key === "U") { goBack(); }
     });
+
+    setInterval(checkForNewlyDueCallbacks, CALLBACK_CHECK_INTERVAL_MS);
 
     // ── Resume autosaved session, if any ─────────────────────────────────
     // Defensive backfill for fields that didn't exist in a session saved
-    // under an older version of this file (2026-09-16 rewrite added
-    // lastAction/scriptMode/per-lead firstName) — a real in-progress test
-    // session must survive this upgrade without a migration step.
+    // under an older version of this file — a real in-progress dial
+    // session must survive every rewrite without a migration step.
     var saved = loadSavedState();
     if (saved && saved.leads && saved.leads.length) {
       state = saved;
-      if (!state.stats) state.stats = { dials: 0, answers: 0, booked: 0, sessionStart: null };
-      if (typeof state.lastAction === "undefined") state.lastAction = null;
+      if (!state.stats) state.stats = { dials: 0, answers: 0, closed: 0, sessionStart: null };
+      if (typeof state.stats.closed === "undefined") state.stats.closed = 0;
+      if (!Array.isArray(state.actionHistory)) state.actionHistory = [];
       if (!state.scriptMode) state.scriptMode = "full";
-      state.leads.forEach(function (lead) { if (typeof lead.firstName === "undefined") lead.firstName = ""; });
+      var nowResume = new Date();
+      state.leads.forEach(function (lead) {
+        if (typeof lead.firstName === "undefined") lead.firstName = "";
+        if (typeof lead.callbackAnnounced === "undefined") lead.callbackAnnounced = isDue(lead.row.callback_at, nowResume);
+      });
       render();
       renderStats();
     } else {
@@ -1307,13 +1491,15 @@
       AREA_CODE_TZ: AREA_CODE_TZ, timezoneForPhone: timezoneForPhone,
       localHourInTimezone: localHourInTimezone, gradeRank: gradeRank,
       filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount,
+      appendRowsToQueue: appendRowsToQueue, reorderLeadToIndex: reorderLeadToIndex,
+      shouldAnnounceCallback: shouldAnnounceCallback,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
       formatTimestamp: formatTimestamp, parseTimestamp: parseTimestamp,
       addHours: addHours, isDue: isDue,
       applyOutcomeToRow: applyOutcomeToRow, applyCallbackToRow: applyCallbackToRow,
       computeCallbackDate: computeCallbackDate,
       snapshotForUndo: snapshotForUndo, applyUndoSnapshot: applyUndoSnapshot,
-      fillTemplate: fillTemplate, escapeHtml: escapeHtml,
+      fillTemplate: fillTemplate, escapeHtml: escapeHtml, isUsableField: isUsableField,
       CORE_PRINCIPLE_TEXT: CORE_PRINCIPLE_TEXT, NO_ASSUMPTIONS_TEXT: NO_ASSUMPTIONS_TEXT,
       SCRIPT_FULL: SCRIPT_FULL, SCRIPT_SHORT: SCRIPT_SHORT, OBJECTIONS: OBJECTIONS,
       TONE_CHEAT_SHEET: TONE_CHEAT_SHEET,
