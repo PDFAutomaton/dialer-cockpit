@@ -860,11 +860,24 @@
   }
 
   // Item 1 — "Load leads" available at all times, with an append mode that
-  // keeps dialed history intact. Only the REMAINING (not-yet-reached)
-  // portion of the queue is re-sorted with the new rows folded in; already-
-  // dialed leads (before `existingIndex`) are left untouched so undo/back
-  // history and stats stay meaningful.
-  function appendRowsToQueue(existingLeads, existingIndex, newRows, now) {
+  // keeps dialed history intact. Only the leads NOT YET resolved this
+  // session are re-sorted with the new rows folded in.
+  //
+  // 2026-09-17 audit fix: partitioning USED to be by array position
+  // (everything before `existingIndex` left untouched, everything from
+  // there on resorted) — that was only safe as long as "already resolved"
+  // and "before the current index" were the same set, which stopped being
+  // true the moment jumpToLead shipped. Jump backward to review an
+  // already-closed lead, then append, and the old position-based split
+  // would fold that resolved lead into the resort — silently repositioning
+  // it and desyncing any pending Back-history entry that still pointed at
+  // its old slot (Back would then undo the WRONG lead). Partitioning by
+  // `dialedThisSession` instead is immune to that: a resolved lead is
+  // never touched by an append no matter where `state.index` currently
+  // points, and in the common case (no backward jump ever happened) this
+  // produces the exact same result as before, since dialedThisSession is
+  // true for precisely the leads before the index at that point.
+  function appendRowsToQueue(existingLeads, newRows, now) {
     now = now || new Date();
     var existingPhones = {};
     existingLeads.forEach(function (lead) {
@@ -876,10 +889,11 @@
       return !p || !existingPhones[p];
     });
     var newLeadObjs = freshRows.map(function (row) { return makeLeadObject(row, now); });
-    var already = existingLeads.slice(0, existingIndex);
-    var remaining = existingLeads.slice(existingIndex).concat(newLeadObjs);
+    var resolved = existingLeads.filter(function (l) { return l.dialedThisSession; });
+    var pending = existingLeads.filter(function (l) { return !l.dialedThisSession; });
+    var remaining = pending.concat(newLeadObjs);
     remaining.sort(function (a, b) { return priorityComparator(now)(a.row, b.row); });
-    return already.concat(remaining);
+    return resolved.concat(remaining);
   }
 
   // Item 4 — moves the lead at `fromIndex` to `toIndex` (used to bring a
@@ -894,22 +908,39 @@
     return copy;
   }
 
+  // 2026-09-17 audit fix — must check status === "callback", not just
+  // isDue(callback_at). Found by tracing the state graph: a lead reaches
+  // "callback" status with a real callback_at via scheduleCallback(), but
+  // if it's later re-logged to something else (jumped to and corrected),
+  // callback_at is deliberately left on the row as a historical breadcrumb
+  // (unlike closed_at/delivered/paid, which ARE cleared — see
+  // clearStaleClosedFields — because nothing reads callback_at as a
+  // "true right now" signal except callback-due logic itself, so leaving
+  // it doesn't mislead anything AS LONG AS every consumer also checks
+  // status). Without the status check here, a dead/closed lead with a
+  // stale future-or-past callback_at could still pop the due-callback
+  // alert and inflate "Callbacks due" — inconsistent with
+  // callbackLeadsSorted (the list view this count summarizes), which
+  // already correctly checks status.
   function shouldAnnounceCallback(row, alreadyAnnounced, now) {
-    return isDue(row.callback_at, now) && !alreadyAnnounced;
+    return row.status === "callback" && isDue(row.callback_at, now) && !alreadyAnnounced;
   }
 
-  // Count of leads ANYWHERE in the session with a callback that's due right
-  // now — surfaced in the stats bar so a due callback is visible at all
-  // times, not just when it happens to be the current card. Whole-session,
-  // not position-based (fixed 2026-09-17 alongside remainingCount, same
-  // bug class): a `fromIndex` cutoff would stop counting a genuinely due,
-  // still-unresolved callback the moment jumpToLead moves state.index past
-  // its array position, even though it's still due and nobody touched it.
+  // Count of leads ANYWHERE in the session with a LIVE, unresolved callback
+  // that's due right now — surfaced in the stats bar so a due callback is
+  // visible at all times, not just when it happens to be the current card.
+  // Whole-session, not position-based (fixed 2026-09-17 alongside
+  // remainingCount, same bug class): a `fromIndex` cutoff would stop
+  // counting a genuinely due, still-unresolved callback the moment
+  // jumpToLead moves state.index past its array position, even though it's
+  // still due and nobody touched it. Also requires status === "callback"
+  // (2026-09-17 audit fix, same reasoning as shouldAnnounceCallback above)
+  // so this number always matches what callbackLeadsSorted would list.
   function dueCallbackCount(leads, now) {
     now = now || new Date();
     var count = 0;
     for (var i = 0; i < leads.length; i++) {
-      if (isDue(leads[i].row.callback_at, now)) count++;
+      if (leads[i].row.status === "callback" && isDue(leads[i].row.callback_at, now)) count++;
     }
     return count;
   }
@@ -1035,6 +1066,28 @@
     return patch;
   }
 
+  // 2026-09-17 audit fix — closing a lead (with delivered/paid possibly
+  // toggled from the Closed view) and then correcting it to a different
+  // outcome later, via jumpToLead, left closed_at/delivered/paid on the
+  // row: real, exportable data claiming a lead was delivered/paid while
+  // its status says dead/callback/etc. Unlike callback_at (kept as a
+  // harmless historical breadcrumb — see shouldAnnounceCallback/
+  // dueCallbackCount above), delivered/paid carry real financial meaning,
+  // and closed_at itself has a "only set if not already set" guard
+  // (recordOutcome) that would otherwise stamp the WRONG (stale, original)
+  // time if the lead is genuinely re-closed later. Back/undo already
+  // handles this correctly on its own (the whole row is snapshotted and
+  // restored), so this only needs to run for the OTHER way a lead's
+  // outcome changes: a direct re-log without ever going through Back.
+  function clearStaleClosedFields(row, newStatus) {
+    if (newStatus === "closed") return;
+    if (row.closed_at || row.delivered || row.paid) {
+      row.closed_at = "";
+      row.delivered = "";
+      row.paid = "";
+    }
+  }
+
   function computeCallbackDate(choice, customValue, now) {
     now = now || new Date();
     if (choice === "2h") return addHours(now, 2);
@@ -1067,14 +1120,28 @@
   // ("accidents happen at volume" — Abdir). Next just skips forward without
   // logging anything (also pushes a history entry, so a skip is itself
   // undoable via Back, for symmetry).
-  function snapshotForUndo(lead, leadIndex, stats) {
+  // 2026-09-17 audit fix — `stats` (sessionStart) is NO LONGER part of this
+  // snapshot. It used to be, and that was a real bug: sessionStart is a
+  // session-GLOBAL fact (set once, on the first CALL tap), not per-lead
+  // action state. If an outcome was ever logged via hotkey before CALL was
+  // first tapped, its snapshot captured sessionStart=null; restoring that
+  // snapshot later via Back — even from a completely unrelated Back on a
+  // DIFFERENT lead's action — would regress sessionStart back to null,
+  // resetting the Dials/hr pace display to 0.0 until CALL was tapped again.
+  // Also added callbackAnnouncedBefore: scheduleCallback() sets
+  // callbackAnnounced=false (so a freshly-scheduled callback can still pop
+  // when due); without capturing/restoring it, a Back on that action left
+  // announced=false even when the lead's restored (pre-scheduling)
+  // callback_at was itself already-announced, letting it re-pop the due
+  // popup a second time for the same callback.
+  function snapshotForUndo(lead, leadIndex) {
     return {
       leadIndex: leadIndex,
       rowBefore: JSON.parse(JSON.stringify(lead.row)),
       sessionNoteBefore: lead.sessionNote,
       firstNameBefore: lead.firstName || "",
       dialedThisSessionBefore: lead.dialedThisSession || false,
-      statsBefore: JSON.parse(JSON.stringify(stats)),
+      callbackAnnouncedBefore: lead.callbackAnnounced || false,
     };
   }
 
@@ -1084,13 +1151,30 @@
     lead.sessionNote = snapshot.sessionNoteBefore;
     lead.firstName = snapshot.firstNameBefore;
     lead.dialedThisSession = snapshot.dialedThisSessionBefore;
-    return { index: snapshot.leadIndex, stats: snapshot.statsBefore };
+    lead.callbackAnnounced = snapshot.callbackAnnouncedBefore;
+    return { index: snapshot.leadIndex };
   }
 
+  // 2026-09-17 audit fix — a save failure (quota exceeded, private-mode
+  // storage restrictions, etc.) used to fail completely silently: the
+  // in-memory session kept working fine, so nothing LOOKED wrong, but
+  // every subsequent action was quietly not being backed up — a closed
+  // tab would lose everything since the last successful save with zero
+  // warning it was ever at risk. Now warns once (not on every single
+  // save — that would be its own kind of unusable at dial volume).
+  var saveFailureWarned = false;
   function saveState() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) { /* storage full/unavailable — session continues, just not autosaved */ }
+    } catch (e) {
+      if (!saveFailureWarned) {
+        saveFailureWarned = true;
+        window.alert(
+          "Warning: this session could not be auto-saved (" + (e && e.message ? e.message : "storage error") + "). " +
+          "It will be lost if you close this tab — export now if you can."
+        );
+      }
+    }
   }
 
   function loadSavedState() {
@@ -1381,11 +1465,23 @@
       var parsed = parseCSV(e.target.result);
       var now = new Date();
       if (mode === "append" && state.fileLoaded) {
-        // Item 1 — append to the current session: dialed history (rows
-        // before state.index) is untouched; the new rows are filtered/
+        // Item 1 — append to the current session: resolved leads (see
+        // appendRowsToQueue) are untouched; the new rows are filtered/
         // deduped/sorted into the remaining queue.
-        state.headers = parsed.headers; // last-loaded CSV's headers win for export column set
-        state.leads = appendRowsToQueue(state.leads, state.index, parsed.rows, now);
+        //
+        // 2026-09-17 audit fix: UNION the new file's headers into the
+        // existing ones instead of overwriting state.headers outright. An
+        // overwrite meant appending a CSV with a different column layout
+        // (e.g. missing business_name/city, or extras like the Sheet's own
+        // call/maps columns) silently dropped those columns from the
+        // EARLIER-loaded leads' export output — merge_session.py itself is
+        // unaffected (it only ever reads by name, and the columns it
+        // needs are force-included below regardless), but the exported
+        // CSV would still be missing real data for no reason.
+        parsed.headers.forEach(function (h) {
+          if (state.headers.indexOf(h) === -1) state.headers.push(h);
+        });
+        state.leads = appendRowsToQueue(state.leads, parsed.rows, now);
       } else {
         state.headers = parsed.headers;
         var queue = filterAndSort(parsed.rows, now);
@@ -1395,6 +1491,7 @@
         state.actionHistory = [];
       }
       state.fileLoaded = true;
+      activeOverlay = null; // land on the dial view, not wherever an overlay happened to be open
       saveState();
       render();
       renderStats();
@@ -1428,18 +1525,24 @@
     );
   }
 
-  function tryRecordOutcome(outcomeKey) {
+  // extraNote is optional — the note modal's "log with a note" path (see
+  // noteSave wiring) also routes through here now (2026-09-17 audit fix),
+  // rather than calling recordOutcome directly, so a destructive outcome
+  // logged with a note can never silently bypass the confirm gate above,
+  // even though no current UI path actually sets pendingOutcome to
+  // no_answer/dead yet — a real structural gap either way, worth closing.
+  function tryRecordOutcome(outcomeKey, extraNote) {
     var lead = currentLead();
     var name = lead ? (lead.row.business_name || "(no name)") : "this lead";
     if (!confirmDestructiveOutcome(outcomeKey, name)) return;
-    recordOutcome(outcomeKey, "");
+    recordOutcome(outcomeKey, extraNote || "");
   }
 
   function recordOutcome(outcomeKey, extraNote) {
     var lead = currentLead();
     if (!lead) return;
 
-    state.actionHistory.push(snapshotForUndo(lead, state.index, state.stats));
+    state.actionHistory.push(snapshotForUndo(lead, state.index));
 
     var patch = applyOutcomeToRow(lead.row, outcomeKey, new Date());
     lead.row.attempts = patch.attempts;
@@ -1450,6 +1553,7 @@
     if (outcomeKey === "closed" && !lead.row.closed_at) {
       lead.row.closed_at = formatTimestamp(new Date());
     }
+    clearStaleClosedFields(lead.row, patch.status);
 
     if (patch.forcedMaxAttempts) {
       appendSessionNote(lead, "max_attempts_reached");
@@ -1469,7 +1573,7 @@
     var lead = currentLead();
     if (!lead) return;
 
-    state.actionHistory.push(snapshotForUndo(lead, state.index, state.stats));
+    state.actionHistory.push(snapshotForUndo(lead, state.index));
 
     var patch = applyCallbackToRow(lead.row, callbackDate, new Date());
     lead.row.attempts = patch.attempts;
@@ -1478,6 +1582,7 @@
     lead.dialedThisSession = true;
     lead.everDialedThisSession = true; // scheduling a callback is a real dial too — same rule as recordOutcome
     lead.callbackAnnounced = false; // a freshly (re)scheduled callback must be able to pop again
+    clearStaleClosedFields(lead.row, "callback");
 
     if (note) appendSessionNote(lead, note);
 
@@ -1492,7 +1597,6 @@
     var snapshot = state.actionHistory.pop();
     var result = applyUndoSnapshot(state.leads, snapshot);
     state.index = result.index;
-    state.stats = result.stats;
     saveState();
     render();
     renderStats();
@@ -1501,7 +1605,7 @@
   function goNext() {
     var lead = currentLead();
     if (!lead) return;
-    state.actionHistory.push(snapshotForUndo(lead, state.index, state.stats));
+    state.actionHistory.push(snapshotForUndo(lead, state.index));
     state.index++;
     saveState();
     render();
@@ -1523,6 +1627,7 @@
         );
         if (bringUp) {
           state.leads = reorderLeadToIndex(state.leads, i, state.index);
+          saveState(); // 2026-09-17 audit fix — the reorder itself wasn't persisted; a reload right after "bring it up next" silently reverted the queue order
           render();
         }
         return; // one per tick — avoid stacking confirms if several came due at once
@@ -1636,7 +1741,7 @@
     els.noteSave.addEventListener("click", function () {
       var text = els.noteText.value.trim();
       if (pendingOutcome) {
-        recordOutcome(pendingOutcome, text);
+        tryRecordOutcome(pendingOutcome, text);
       } else {
         var lead = currentLead();
         if (lead) { appendSessionNote(lead, text); saveState(); }
@@ -1767,29 +1872,53 @@
     // Defensive backfill for fields that didn't exist in a session saved
     // under an older version of this file — a real in-progress dial
     // session must survive every rewrite without a migration step.
+    //
+    // 2026-09-17 audit fix — this whole block used to have no failure
+    // handling of its own: loadSavedState() already swallows a JSON.parse
+    // failure and returns null (indistinguishable from "nothing was ever
+    // saved" — fine, since that genuinely is the same as a fresh start),
+    // but a saved value that parses fine and HAS a truthy `leads` array
+    // with SOME malformed shape (e.g. a future/incompatible version, or
+    // partial corruption that still produces valid JSON) could throw
+    // uncaught inside this backfill loop — crashing to a blank page with
+    // no error the operator would ever see. Wrapped in try/catch so any
+    // such failure resets to a clean state AND says so out loud, instead
+    // of either crashing silently or quietly resuming as if it were a
+    // normal fresh start.
     var saved = loadSavedState();
+    var resumedOk = false;
     if (saved && saved.leads && saved.leads.length) {
-      state = saved;
-      if (!state.stats) state.stats = { sessionStart: null };
-      if (!Array.isArray(state.actionHistory)) state.actionHistory = [];
-      if (!state.scriptMode) state.scriptMode = "full";
-      var nowResume = new Date();
-      state.leads.forEach(function (lead, idx) {
-        if (typeof lead.firstName === "undefined") lead.firstName = "";
-        if (typeof lead.callbackAnnounced === "undefined") lead.callbackAnnounced = isDue(lead.row.callback_at, nowResume);
-        // One-time inference for sessions saved before dialedThisSession/
-        // everDialedThisSession existed: at that point index truly did only
-        // ever move forward sequentially (jumpToLead didn't exist yet), so
-        // "before the current index" reliably meant "already handled this
-        // session" for both flags.
-        if (typeof lead.dialedThisSession === "undefined") lead.dialedThisSession = idx < state.index;
-        if (typeof lead.everDialedThisSession === "undefined") lead.everDialedThisSession = idx < state.index;
-      });
-      render();
-      renderStats();
-    } else {
-      render();
+      try {
+        state = saved;
+        if (!state.stats) state.stats = { sessionStart: null };
+        if (!Array.isArray(state.actionHistory)) state.actionHistory = [];
+        if (!state.scriptMode) state.scriptMode = "full";
+        var nowResume = new Date();
+        state.leads.forEach(function (lead, idx) {
+          if (typeof lead.firstName === "undefined") lead.firstName = "";
+          if (typeof lead.callbackAnnounced === "undefined") lead.callbackAnnounced = isDue(lead.row.callback_at, nowResume);
+          // One-time inference for sessions saved before dialedThisSession/
+          // everDialedThisSession existed: at that point index truly did only
+          // ever move forward sequentially (jumpToLead didn't exist yet), so
+          // "before the current index" reliably meant "already handled this
+          // session" for both flags.
+          if (typeof lead.dialedThisSession === "undefined") lead.dialedThisSession = idx < state.index;
+          if (typeof lead.everDialedThisSession === "undefined") lead.everDialedThisSession = idx < state.index;
+        });
+        resumedOk = true;
+      } catch (e) {
+        state = {
+          fileLoaded: false, headers: [], leads: [], index: 0,
+          stats: { sessionStart: null }, actionHistory: [], scriptMode: "full",
+        };
+        window.alert(
+          "Your saved session couldn't be resumed (it looked corrupted) — starting fresh instead. " +
+          "If you had unexported progress, it may be lost. (" + (e && e.message ? e.message : "unknown error") + ")"
+        );
+      }
     }
+    render();
+    if (resumedOk) renderStats();
   }
 
   // Node-testability only — always a no-op in the browser (`module` is
@@ -1803,7 +1932,7 @@
       localHourInTimezone: localHourInTimezone, gradeRank: gradeRank,
       filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount, remainingCount: remainingCount,
       dialsCount: dialsCount, answersCount: answersCount, closedCount: closedCount,
-      confirmDestructiveOutcome: confirmDestructiveOutcome,
+      confirmDestructiveOutcome: confirmDestructiveOutcome, clearStaleClosedFields: clearStaleClosedFields,
       appendRowsToQueue: appendRowsToQueue, reorderLeadToIndex: reorderLeadToIndex,
       shouldAnnounceCallback: shouldAnnounceCallback, callbackLeadsSorted: callbackLeadsSorted,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
