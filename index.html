@@ -141,6 +141,15 @@
     font-size: clamp(11px, 3vw, 12px); font-weight: 700;
     background: rgba(59,130,246,.18); color: var(--accent); align-self: flex-start;
   }
+  /* Shown when viewing a lead that ALREADY has a logged outcome this
+     session (item 1, 2026-09-17) — reached by jumping to it from a list,
+     so the operator can see what they're about to replace before tapping
+     a different outcome directly. */
+  #currentOutcomeBadge {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: clamp(11px, 3vw, 12px); font-weight: 700;
+    background: rgba(245,158,11,.18); color: var(--amber); align-self: flex-start;
+  }
 
   .callback-banner {
     background: var(--purple); color: white; font-weight: 700;
@@ -242,9 +251,10 @@
   .lead-list-item:active { filter: brightness(1.15); }
   .lead-list-item.pending { border-left: 4px solid var(--accent); }
   .lead-list-item.dialed { border-left: 4px solid var(--border); opacity: .7; }
+  .lead-list-item.overdue { border-left: 4px solid var(--red); }
   .lead-list-name { font-weight: 800; font-size: clamp(16px, 4.5vw, 19px); }
   .lead-list-meta { color: var(--text-dim); font-size: clamp(12px, 3.4vw, 13px); }
-  .lead-list-meta .due-now { color: var(--purple); font-weight: 700; }
+  .lead-list-meta .overdue-text { color: var(--red); font-weight: 700; }
 
   /* ── Modal (note entry) ──────────────────────────────────────────────── */
   .modal {
@@ -341,6 +351,7 @@
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <span id="priorityBadge"></span>
         <span id="webPresenceBadge" hidden></span>
+        <span id="currentOutcomeBadge" hidden></span>
       </div>
       <div id="leadName"></div>
       <div id="leadMeta"></div>
@@ -801,11 +812,25 @@
   // Shared by filterAndSort (initial load) and appendRowsToQueue (item 1 —
   // appending more leads mid-session) so due-callback-first/priority
   // ordering is defined exactly once.
+  //
+  // 2026-09-17 (later) fix — when MULTIPLE callbacks are due at once, they
+  // used to tie-break by grade/rating like everything else, which doesn't
+  // match "sort overdue first, then soonest": a callback that's 3 hours
+  // overdue could land AFTER one that's 5 minutes overdue just because the
+  // latter had a better grade. Due callbacks now sub-sort by their actual
+  // callback_at time (earliest first — the most overdue one, or if none
+  // are overdue yet, the soonest upcoming one), and only fall through to
+  // grade/rating once time is equal or unavailable.
   function priorityComparator(now) {
     return function (a, b) {
       var aDue = isDue(a.callback_at, now) ? 0 : 1;
       var bDue = isDue(b.callback_at, now) ? 0 : 1;
       if (aDue !== bDue) return aDue - bDue; // due callbacks surface first, before priority sort
+      if (aDue === 0) {
+        var at = parseTimestamp(a.callback_at);
+        var bt = parseTimestamp(b.callback_at);
+        if (at && bt && at.getTime() !== bt.getTime()) return at.getTime() - bt.getTime();
+      }
       var rankDiff = gradeRank(a.priority) - gradeRank(b.priority);
       if (rankDiff !== 0) return rankDiff;
       var ratingA = parseFloat(a.rating) || -1;
@@ -1016,9 +1041,30 @@
       if (!da && !db) return 0;
       if (!da) return 1;
       if (!db) return -1;
-      return da.getTime() - db.getTime();
+      return da.getTime() - db.getTime(); // ascending: most-overdue (earliest timestamp) first, then soonest upcoming
     });
     return entries;
+  }
+
+  // 2026-09-17 (later) — "keep overdue callbacks in the queue, but make
+  // them visually distinct" (Abdir: "a missed 2pm callback still needs
+  // calling"). Nothing removes an overdue callback from the queue or the
+  // list already; this only fixes the DISPLAY, which previously showed
+  // the same raw timestamp for a callback due in 5 minutes and one that's
+  // 3 hours overdue.
+  function formatCallbackTiming(callbackAt, now) {
+    now = now || new Date();
+    var d = parseTimestamp(callbackAt);
+    if (!d) return "—";
+    var diffMs = d.getTime() - now.getTime();
+    if (diffMs <= 0) return "OVERDUE — was due " + callbackAt;
+    var mins = Math.round(diffMs / 60000);
+    if (mins < 1) return "due in <1m";
+    if (mins < 60) return "due in " + mins + "m";
+    var hours = Math.round(mins / 60);
+    if (hours < 24) return "due in " + hours + "h";
+    var days = Math.round(hours / 24);
+    return "due in " + days + "d";
   }
 
   // ── Redial policy + callback scheduling ─────────────────────────────────
@@ -1034,16 +1080,31 @@
     closed: "closed",
   };
 
-  function applyOutcomeToRow(row, outcomeKey, now) {
+  // Human-readable labels for the "Currently logged: X" card badge
+  // (item 1, 2026-09-17, later).
+  var STATUS_DISPLAY_LABEL = {
+    no_answer: "NO ANSWER", dead: "DEAD", called_talked: "CALLED–TALKED",
+    closed: "CLOSED", callback: "CALLBACK SCHEDULED",
+  };
+
+  // incrementAttempts=true is the normal "this is a real, new dial" path.
+  // 2026-09-17 (later) added incrementAttempts=false for relogOutcome
+  // below — correcting what's already logged for an already-dialed lead
+  // (jumped to from a list) isn't a second phone call, so attempts must
+  // stay exactly where it was; the no-answer cap check still reads
+  // whatever attempts already is, so a corrected NO ANSWER on a lead
+  // that's already at attempts>=1 still correctly forces dead.
+  function computeOutcomePatch(row, outcomeKey, incrementAttempts, now) {
     now = now || new Date();
     var currentAttempts = parseInt(row.attempts, 10) || 0;
-    // 2026-09-17 — attempts now increments on EVERY outcome, including DEAD
-    // and CLOSED (previously excluded, matching the old BOOKED behavior).
-    // That exclusion silently under-recorded real dial history (Abdir: "I
-    // dialed them" — a closed or dead lead was still an actual attempt).
-    // Safe: the no-answer cap check below is scoped to `no_answer` only and
-    // never reads this exclusion, so which leads auto-archive is unchanged.
-    var attempts = currentAttempts + 1;
+    // 2026-09-17 — attempts now increments on EVERY *new-dial* outcome,
+    // including DEAD and CLOSED (previously excluded, matching the old
+    // BOOKED behavior). That exclusion silently under-recorded real dial
+    // history (Abdir: "I dialed them" — a closed or dead lead was still an
+    // actual attempt). Safe: the no-answer cap check below is scoped to
+    // `no_answer` only and never reads this exclusion, so which leads
+    // auto-archive is unchanged.
+    var attempts = incrementAttempts ? currentAttempts + 1 : currentAttempts;
 
     var patch = {
       attempts: String(attempts),
@@ -1064,6 +1125,18 @@
     }
 
     return patch;
+  }
+
+  function applyOutcomeToRow(row, outcomeKey, now) {
+    return computeOutcomePatch(row, outcomeKey, true, now);
+  }
+
+  // Used by relogOutcome (2026-09-17, later) — a direct correction to an
+  // ALREADY-dialed lead's outcome, reached by jumping to it from a list.
+  // Never increments attempts: no new phone call happened, just a fix to
+  // what was recorded about an existing one.
+  function applyCorrectedOutcome(row, outcomeKey, now) {
+    return computeOutcomePatch(row, outcomeKey, false, now);
   }
 
   // 2026-09-17 audit fix — closing a lead (with delivered/paid possibly
@@ -1100,10 +1173,10 @@
     return null;
   }
 
-  function applyCallbackToRow(row, callbackDate, now) {
+  function computeCallbackPatch(row, callbackDate, incrementAttempts, now) {
     now = now || new Date();
     var currentAttempts = parseInt(row.attempts, 10) || 0;
-    var attempts = currentAttempts + 1; // scheduling a callback is a real dial too
+    var attempts = incrementAttempts ? currentAttempts + 1 : currentAttempts; // scheduling a callback is a real dial too — unless this is a correction, see applyCorrectedCallback
 
     return {
       attempts: String(attempts),
@@ -1111,6 +1184,17 @@
       callback_at: formatTimestamp(callbackDate),
       forcedMaxAttempts: false,
     };
+  }
+
+  function applyCallbackToRow(row, callbackDate, now) {
+    return computeCallbackPatch(row, callbackDate, true, now);
+  }
+
+  // Used by relogCallback (2026-09-17, later) — rescheduling/correcting an
+  // already-dialed lead's callback, reached by jumping to it. Attempts
+  // stays put, same reasoning as applyCorrectedOutcome.
+  function applyCorrectedCallback(row, callbackDate, now) {
+    return computeCallbackPatch(row, callbackDate, false, now);
   }
 
   // ── Back/Next (item 3, 2026-09-17) — replaces the previous single-level
@@ -1197,7 +1281,7 @@
     ["statDials","statPace","statAnswers","statClosed","statClosedWrap",
      "statCallbacksDue","statCallbacksWrap","statRemaining","statRemainingWrap",
      "loadScreen","cardScreen","emptyScreen","closedScreen","callbacksScreen","allLeadsScreen","loadBtn","fileInput",
-     "tzBanner","tzBannerSub","callbackBanner","leadCard","priorityBadge","webPresenceBadge",
+     "tzBanner","tzBannerSub","callbackBanner","leadCard","priorityBadge","webPresenceBadge","currentOutcomeBadge",
      "leadName","leadMeta","leadRating","firstNameInput","phoneLink","mapsLink",
      "scriptFullBtn","scriptShortBtn","scriptSections","corePrincipleText","noAssumptionsText",
      "objectionsDetails","objectionsList","toneList",
@@ -1321,6 +1405,16 @@
       els.webPresenceBadge.hidden = true;
     }
 
+    // Item 1 (2026-09-17, later) — "when I jump to a lead ... I should see
+    // its current outcome." Shown for any lead already dialed this
+    // session, whether reached by jumping or (post-Back) sequentially.
+    if (lead.dialedThisSession) {
+      els.currentOutcomeBadge.hidden = false;
+      els.currentOutcomeBadge.textContent = "Currently logged: " + (STATUS_DISPLAY_LABEL[row.status] || row.status || "?");
+    } else {
+      els.currentOutcomeBadge.hidden = true;
+    }
+
     var callbackDue = isDue(row.callback_at, new Date());
     els.callbackBanner.hidden = !callbackDue;
 
@@ -1377,7 +1471,8 @@
 
   function renderCallbacksScreen() {
     if (!els.callbacksList) return;
-    var entries = callbackLeadsSorted(state.leads, new Date());
+    var now = new Date();
+    var entries = callbackLeadsSorted(state.leads, now);
     els.callbacksCount.textContent = entries.length;
     if (!entries.length) {
       els.callbacksList.innerHTML = '<p class="overlay-empty">No scheduled callbacks.</p>';
@@ -1385,10 +1480,11 @@
     }
     els.callbacksList.innerHTML = entries.map(function (entry) {
       var row = entry.row;
-      return '<div class="lead-list-item" data-leadidx="' + entry.index + '">' +
+      var timing = formatCallbackTiming(row.callback_at, now);
+      var overdue = timing.indexOf("OVERDUE") === 0;
+      return '<div class="lead-list-item' + (overdue ? " overdue" : "") + '" data-leadidx="' + entry.index + '">' +
         '<div class="lead-list-name">' + escapeHtml(row.business_name || "(no name)") + '</div>' +
-        '<div class="lead-list-meta">' + (entry.due ? '<span class="due-now">DUE NOW</span> · ' : "") +
-          escapeHtml(row.callback_at || "—") + '</div>' +
+        '<div class="lead-list-meta">' + (overdue ? '<span class="overdue-text">' : '<span>') + escapeHtml(timing) + '</span></div>' +
       '</div>';
     }).join("");
   }
@@ -1402,11 +1498,22 @@
     }
     els.allLeadsList.innerHTML = state.leads.map(function (lead, idx) {
       var row = lead.row;
-      var dialed = !!lead.dialedThisSession;
+      // 2026-09-17 (later) fix — this badge must reflect everDialedThisSession
+      // (a real dial happened at some point, EVER, this session), not
+      // dialedThisSession (whether there's CURRENTLY an unresolved outcome
+      // logged). Those are different questions: dialedThisSession is reset
+      // to false by Back specifically so the pending-outcome view of things
+      // is accurate, but that made a lead the operator undid to correct
+      // show as "not yet dialed" even though they'd genuinely already
+      // called them — confusing and wrong for this list's purpose, which is
+      // "have I actually called this business." row.status (shown
+      // alongside) is what carries the CURRENT logged outcome, including
+      // "new" for one that's mid-correction.
+      var dialed = !!lead.everDialedThisSession;
       return '<div class="lead-list-item ' + (dialed ? "dialed" : "pending") + '" data-leadidx="' + idx + '">' +
         '<div class="lead-list-name">' + escapeHtml(row.business_name || "(no name)") + '</div>' +
         '<div class="lead-list-meta">' + escapeHtml(row.status || "new") + " · " +
-          (dialed ? "already logged" : "not yet dialed") + '</div>' +
+          (dialed ? "dialed" : "not yet dialed") + '</div>' +
       '</div>';
     }).join("");
   }
@@ -1531,11 +1638,23 @@
   // logged with a note can never silently bypass the confirm gate above,
   // even though no current UI path actually sets pendingOutcome to
   // no_answer/dead yet — a real structural gap either way, worth closing.
+  //
+  // 2026-09-17 (later) — dispatches to relogOutcome instead of recordOutcome
+  // when the current lead is ALREADY dialed this session (dialedThisSession
+  // — NOT everDialedThisSession, which stays true even after a Back; Back
+  // already reverts dialedThisSession to false, correctly routing back
+  // through the normal new-dial path below, which is safe because Back
+  // also reverted attempts via the full-row restore). Abdir: "tapping a
+  // different one should replace it directly — no unsetting step."
   function tryRecordOutcome(outcomeKey, extraNote) {
     var lead = currentLead();
     var name = lead ? (lead.row.business_name || "(no name)") : "this lead";
     if (!confirmDestructiveOutcome(outcomeKey, name)) return;
-    recordOutcome(outcomeKey, extraNote || "");
+    if (lead && lead.dialedThisSession) {
+      relogOutcome(outcomeKey, extraNote || "");
+    } else {
+      recordOutcome(outcomeKey, extraNote || "");
+    }
   }
 
   function recordOutcome(outcomeKey, extraNote) {
@@ -1569,6 +1688,46 @@
     renderStats();
   }
 
+  // 2026-09-17 (later) — direct correction for a lead that's ALREADY
+  // dialed this session (reached by jumping to it from a list), replacing
+  // its outcome without an unsetting step. Deliberately does NOT:
+  //   - increment attempts (applyCorrectedOutcome) — no new phone call
+  //     happened, just a fix to what was recorded about an existing one.
+  //   - push a new actionHistory entry — this isn't a fresh dial for Back
+  //     to undo; Back's job stays "undo the last sequential action," and
+  //     stacking a second entry for the same lead would let Back undo a
+  //     correction back to the PREVIOUS wrong outcome instead of to
+  //     "nothing logged," which isn't the right undo target either. If a
+  //     mistap happens mid-correction, jump back to the lead again and
+  //     correct it again — direct re-log is idempotent, there's nothing to
+  //     "get stuck" wrong.
+  //   - advance state.index — the operator isn't moving through the queue,
+  //     they're fixing a specific record and should land wherever they
+  //     choose next via the list, not be swept forward.
+  function relogOutcome(outcomeKey, extraNote) {
+    var lead = currentLead();
+    if (!lead) return;
+
+    var patch = applyCorrectedOutcome(lead.row, outcomeKey, new Date());
+    lead.row.attempts = patch.attempts;
+    lead.row.status = patch.status;
+    lead.row.next_eligible_at = patch.next_eligible_at;
+    // dialedThisSession/everDialedThisSession are already true — nothing to change.
+    if (outcomeKey === "closed" && !lead.row.closed_at) {
+      lead.row.closed_at = formatTimestamp(new Date());
+    }
+    clearStaleClosedFields(lead.row, patch.status);
+
+    if (patch.forcedMaxAttempts) {
+      appendSessionNote(lead, "max_attempts_reached");
+    }
+    if (extraNote) appendSessionNote(lead, extraNote);
+
+    saveState();
+    render();
+    renderStats();
+  }
+
   function scheduleCallback(callbackDate, note) {
     var lead = currentLead();
     if (!lead) return;
@@ -1587,6 +1746,27 @@
     if (note) appendSessionNote(lead, note);
 
     state.index++;
+    saveState();
+    render();
+    renderStats();
+  }
+
+  // Direct correction counterpart to relogOutcome, for SCHEDULE CALLBACK —
+  // see relogOutcome for the full reasoning (no attempts increment, no
+  // actionHistory entry, no index advance).
+  function relogCallback(callbackDate, note) {
+    var lead = currentLead();
+    if (!lead) return;
+
+    var patch = applyCorrectedCallback(lead.row, callbackDate, new Date());
+    lead.row.attempts = patch.attempts;
+    lead.row.status = patch.status;
+    lead.row.callback_at = patch.callback_at;
+    lead.callbackAnnounced = false; // re-scheduled — must be able to pop again when due
+    clearStaleClosedFields(lead.row, "callback");
+
+    if (note) appendSessionNote(lead, note);
+
     saveState();
     render();
     renderStats();
@@ -1816,7 +1996,12 @@
       var date = computeCallbackDate(pendingCallbackChoice, els.callbackCustomInput.value, new Date());
       if (!date) { window.alert("Pick a callback time first."); return; }
       var note = els.callbackNoteText.value.trim();
-      scheduleCallback(date, note);
+      var lead = currentLead();
+      if (lead && lead.dialedThisSession) {
+        relogCallback(date, note);
+      } else {
+        scheduleCallback(date, note);
+      }
       closeCallbackModal();
     });
 
@@ -1933,6 +2118,8 @@
       filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount, remainingCount: remainingCount,
       dialsCount: dialsCount, answersCount: answersCount, closedCount: closedCount,
       confirmDestructiveOutcome: confirmDestructiveOutcome, clearStaleClosedFields: clearStaleClosedFields,
+      applyCorrectedOutcome: applyCorrectedOutcome, applyCorrectedCallback: applyCorrectedCallback,
+      formatCallbackTiming: formatCallbackTiming, STATUS_DISPLAY_LABEL: STATUS_DISPLAY_LABEL,
       appendRowsToQueue: appendRowsToQueue, reorderLeadToIndex: reorderLeadToIndex,
       shouldAnnounceCallback: shouldAnnounceCallback, callbackLeadsSorted: callbackLeadsSorted,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
