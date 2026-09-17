@@ -49,8 +49,8 @@
   #statsBar .stat .val { font-weight: 700; font-size: clamp(16px, 4.5vw, 20px); }
   #statsBar .stat .lbl { color: var(--text-dim); font-size: clamp(10px, 2.6vw, 11px); text-transform: uppercase; letter-spacing: .04em; }
   #statCallbacksDue.due { color: var(--purple); }
-  #statClosedWrap { cursor: pointer; }
-  #statClosedWrap .lbl { text-decoration: underline dotted; }
+  #statClosedWrap, #statCallbacksWrap, #statRemainingWrap { cursor: pointer; }
+  #statClosedWrap .lbl, #statCallbacksWrap .lbl, #statRemainingWrap .lbl { text-decoration: underline dotted; }
 
   #activeBar {
     display: flex; align-items: center; gap: 8px;
@@ -211,11 +211,13 @@
 
   .kb-hint { display: none; color: var(--text-dim); font-size: 12px; text-align: center; }
 
-  /* ── Closed view (item 5) ────────────────────────────────────────────── */
-  #closedScreen { flex: 1; padding: 12px; max-width: 640px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 12px; }
-  #closedScreen h2 { margin: 4px 0 0; font-size: clamp(18px, 5vw, 22px); }
-  #closedBackBtn { align-self: flex-start; padding: 10px 16px; font-weight: 700; }
-  .closed-empty { color: var(--text-dim); text-align: center; padding: 24px; }
+  /* ── List overlays: Closed (item 5) / Scheduled callbacks / Leads in
+       session (this turn) — share one outer layout. ─────────────────────── */
+  .overlay-screen { flex: 1; padding: 12px; max-width: 640px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 12px; }
+  .overlay-screen h2 { margin: 4px 0 0; font-size: clamp(18px, 5vw, 22px); }
+  .overlay-back-btn { align-self: flex-start; padding: 10px 16px; font-weight: 700; }
+  .overlay-empty { color: var(--text-dim); text-align: center; padding: 24px; }
+
   .closed-item {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
     padding: 14px; display: flex; flex-direction: column; gap: 8px;
@@ -228,6 +230,21 @@
     background: var(--border); color: var(--text-dim);
   }
   .closed-toggle.on { background: var(--green); color: #06210f; }
+
+  /* Scheduled-callbacks and Leads-in-session lists — tap any row to jump
+     straight to that lead's card (state.index jumps there directly; Back's
+     history stack is unrelated and untouched by a plain jump). */
+  .lead-list-item {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px;
+    padding: 14px; display: flex; flex-direction: column; gap: 6px;
+    cursor: pointer;
+  }
+  .lead-list-item:active { filter: brightness(1.15); }
+  .lead-list-item.pending { border-left: 4px solid var(--accent); }
+  .lead-list-item.dialed { border-left: 4px solid var(--border); opacity: .7; }
+  .lead-list-name { font-weight: 800; font-size: clamp(16px, 4.5vw, 19px); }
+  .lead-list-meta { color: var(--text-dim); font-size: clamp(12px, 3.4vw, 13px); }
+  .lead-list-meta .due-now { color: var(--purple); font-weight: 700; }
 
   /* ── Modal (note entry) ──────────────────────────────────────────────── */
   .modal {
@@ -246,6 +263,16 @@
   .modal-actions { display: flex; gap: 10px; }
   .modal-actions button { flex: 1; padding: 12px; font-weight: 700; }
   #noteSave { background: var(--accent); color: white; }
+
+  /* ── Load-choice modal: Cancel/Append/End-and-start-new are visually and
+     positionally distinct so Cancel can never be mistaken for the
+     destructive option (2026-09-17 fix — the old two-button confirm() had
+     Cancel silently mapped to the destructive "start new" path). ────────── */
+  .modal-actions-stack { display: flex; flex-direction: column; gap: 10px; }
+  .modal-actions-stack button { padding: 14px; font-weight: 700; }
+  #loadAppendBtn { background: var(--accent); color: white; }
+  #loadEndNewBtn { background: var(--red); color: white; }
+  #loadCancelBtn { background: var(--border); color: var(--text); }
 
   /* ── Callback scheduling modal (Amendment A5) ───────────────────────────── */
   .callback-options {
@@ -282,8 +309,8 @@
       <div class="stat"><span class="val" id="statPace">0.0</span><span class="lbl">Dials/hr</span></div>
       <div class="stat"><span class="val" id="statAnswers">0</span><span class="lbl">Answers</span></div>
       <div class="stat" id="statClosedWrap" title="Tap to view closed leads"><span class="val" id="statClosed">0</span><span class="lbl">Closed</span></div>
-      <div class="stat"><span class="val" id="statCallbacksDue">0</span><span class="lbl">Callbacks due</span></div>
-      <div class="stat"><span class="val" id="statRemaining">0</span><span class="lbl">Remaining</span></div>
+      <div class="stat" id="statCallbacksWrap" title="Tap to view scheduled callbacks"><span class="val" id="statCallbacksDue">0</span><span class="lbl">Callbacks due</span></div>
+      <div class="stat" id="statRemainingWrap" title="Tap to view every lead in this session"><span class="val" id="statRemaining">0</span><span class="lbl">Remaining</span></div>
     </header>
     <div id="activeBar" hidden>
       <span id="activeLeadName">—</span>
@@ -369,10 +396,22 @@
     No dialable leads in this CSV (nothing with status <code>new</code>, <code>no_answer</code>, or a due <code>callback</code>).
   </section>
 
-  <section id="closedScreen" hidden>
-    <button id="closedBackBtn">← Back to dialing</button>
+  <section id="closedScreen" class="overlay-screen" hidden>
+    <button id="closedBackBtn" class="overlay-back-btn">← Back to dialing</button>
     <h2>Closed leads (<span id="closedCount">0</span>)</h2>
     <div id="closedList"></div>
+  </section>
+
+  <section id="callbacksScreen" class="overlay-screen" hidden>
+    <button id="callbacksBackBtn" class="overlay-back-btn">← Back to dialing</button>
+    <h2>Scheduled callbacks (<span id="callbacksCount">0</span>)</h2>
+    <div id="callbacksList"></div>
+  </section>
+
+  <section id="allLeadsScreen" class="overlay-screen" hidden>
+    <button id="allLeadsBackBtn" class="overlay-back-btn">← Back to dialing</button>
+    <h2>Leads in session (<span id="allLeadsCount">0</span>)</h2>
+    <div id="allLeadsList"></div>
   </section>
 </div>
 
@@ -403,6 +442,18 @@
     <div class="modal-actions">
       <button id="callbackCancel">Cancel</button>
       <button id="callbackSave">Schedule</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="loadChoiceModal" hidden>
+  <div class="modal-box">
+    <h3>Load leads</h3>
+    <p class="script-frame-note" style="margin:0;">A session is already loaded.</p>
+    <div class="modal-actions-stack">
+      <button id="loadAppendBtn">Append to current session</button>
+      <button id="loadEndNewBtn">End session and start new</button>
+      <button id="loadCancelBtn">Cancel</button>
     </div>
   </div>
 </div>
@@ -726,7 +777,10 @@
     actionHistory: [], // stack of snapshots for goBack() — see snapshotForUndo/applyUndoSnapshot
     scriptMode: "full", // "full" | "short"
   };
-  var showingClosed = false; // transient UI mode, not persisted — always reopens on the dial view
+  // Transient UI mode, not persisted — always reopens on the dial view.
+  // null = normal dial flow; "closed" | "callbacks" | "allLeads" = one of
+  // the stats-bar list overlays (2026-09-17).
+  var activeOverlay = null;
 
   function gradeRank(priority) {
     var p = (priority || "").trim().toUpperCase();
@@ -773,6 +827,13 @@
       // they're already visible via sort order + the stats-bar count; only
       // ones that become due WHILE the session is open should announce.
       callbackAnnounced: isDue(row.callback_at, now),
+      // Explicit flag for the "Leads in session" view (2026-09-17) — NOT
+      // inferred from queue position, because jumping directly to a lead
+      // (see jumpToLead) can move state.index past leads that were never
+      // actually touched. Set true only by recordOutcome/scheduleCallback
+      // (an outcome was actually logged), never by goNext (a plain skip
+      // logs nothing, so it must still read as "not yet dialed").
+      dialedThisSession: false,
     };
   }
 
@@ -825,6 +886,30 @@
       if (isDue(leads[i].row.callback_at, now)) count++;
     }
     return count;
+  }
+
+  // Every callback-status lead in the session (due or not, not just
+  // remaining), soonest first — backs the "Scheduled / callbacks" stats-bar
+  // view (2026-09-17). Deliberately whole-session, unlike dueCallbackCount
+  // above (remaining-only) — Abdir asked to see every scheduled callback
+  // and its time, not just which ones are due right now.
+  function callbackLeadsSorted(leads, now) {
+    now = now || new Date();
+    var entries = [];
+    leads.forEach(function (lead, idx) {
+      if (lead.row.status === "callback") {
+        entries.push({ index: idx, row: lead.row, due: isDue(lead.row.callback_at, now) });
+      }
+    });
+    entries.sort(function (a, b) {
+      var da = parseTimestamp(a.row.callback_at);
+      var db = parseTimestamp(b.row.callback_at);
+      if (!da && !db) return 0;
+      if (!da) return 1;
+      if (!db) return -1;
+      return da.getTime() - db.getTime();
+    });
+    return entries;
   }
 
   // ── Redial policy + callback scheduling ─────────────────────────────────
@@ -910,6 +995,7 @@
       rowBefore: JSON.parse(JSON.stringify(lead.row)),
       sessionNoteBefore: lead.sessionNote,
       firstNameBefore: lead.firstName || "",
+      dialedThisSessionBefore: lead.dialedThisSession || false,
       statsBefore: JSON.parse(JSON.stringify(stats)),
     };
   }
@@ -919,6 +1005,7 @@
     lead.row = snapshot.rowBefore;
     lead.sessionNote = snapshot.sessionNoteBefore;
     lead.firstName = snapshot.firstNameBefore;
+    lead.dialedThisSession = snapshot.dialedThisSessionBefore;
     return { index: snapshot.leadIndex, stats: snapshot.statsBefore };
   }
 
@@ -945,8 +1032,9 @@
   // render()/wiring, which Node-side tests never do.
   var els = {};
   if (typeof document !== "undefined") {
-    ["statDials","statPace","statAnswers","statClosed","statClosedWrap","statCallbacksDue","statRemaining",
-     "loadScreen","cardScreen","emptyScreen","closedScreen","loadBtn","fileInput",
+    ["statDials","statPace","statAnswers","statClosed","statClosedWrap",
+     "statCallbacksDue","statCallbacksWrap","statRemaining","statRemainingWrap",
+     "loadScreen","cardScreen","emptyScreen","closedScreen","callbacksScreen","allLeadsScreen","loadBtn","fileInput",
      "tzBanner","tzBannerSub","callbackBanner","leadCard","priorityBadge","webPresenceBadge",
      "leadName","leadMeta","leadRating","firstNameInput","phoneLink","mapsLink",
      "scriptFullBtn","scriptShortBtn","scriptSections","corePrincipleText","noAssumptionsText",
@@ -957,6 +1045,9 @@
      "copyMockupLinkBtn","copyPhotoRequestBtn",
      "activeBar","activeLeadName","backBtn","loadMoreBtn","exportBtn",
      "closedBackBtn","closedCount","closedList",
+     "callbacksBackBtn","callbacksCount","callbacksList",
+     "allLeadsBackBtn","allLeadsCount","allLeadsList",
+     "loadChoiceModal","loadAppendBtn","loadEndNewBtn","loadCancelBtn",
     ].forEach(function (id) { els[id] = document.getElementById(id); });
     if (els.corePrincipleText) els.corePrincipleText.textContent = CORE_PRINCIPLE_TEXT;
     if (els.noAssumptionsText) els.noAssumptionsText.textContent = NO_ASSUMPTIONS_TEXT;
@@ -1015,15 +1106,21 @@
   function render() {
     renderActiveBar();
 
-    if (showingClosed) {
+    if (activeOverlay) {
       els.loadScreen.hidden = true;
       els.cardScreen.hidden = true;
       els.emptyScreen.hidden = true;
-      els.closedScreen.hidden = false;
-      renderClosedScreen();
+      els.closedScreen.hidden = activeOverlay !== "closed";
+      els.callbacksScreen.hidden = activeOverlay !== "callbacks";
+      els.allLeadsScreen.hidden = activeOverlay !== "allLeads";
+      if (activeOverlay === "closed") renderClosedScreen();
+      else if (activeOverlay === "callbacks") renderCallbacksScreen();
+      else if (activeOverlay === "allLeads") renderAllLeadsScreen();
       return;
     }
     els.closedScreen.hidden = true;
+    els.callbacksScreen.hidden = true;
+    els.allLeadsScreen.hidden = true;
 
     if (!state.fileLoaded) {
       // Nothing loaded yet — show only the load screen, not the empty-queue
@@ -1116,6 +1213,61 @@
     }).join("");
   }
 
+  function renderCallbacksScreen() {
+    if (!els.callbacksList) return;
+    var entries = callbackLeadsSorted(state.leads, new Date());
+    els.callbacksCount.textContent = entries.length;
+    if (!entries.length) {
+      els.callbacksList.innerHTML = '<p class="overlay-empty">No scheduled callbacks.</p>';
+      return;
+    }
+    els.callbacksList.innerHTML = entries.map(function (entry) {
+      var row = entry.row;
+      return '<div class="lead-list-item" data-leadidx="' + entry.index + '">' +
+        '<div class="lead-list-name">' + escapeHtml(row.business_name || "(no name)") + '</div>' +
+        '<div class="lead-list-meta">' + (entry.due ? '<span class="due-now">DUE NOW</span> · ' : "") +
+          escapeHtml(row.callback_at || "—") + '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  function renderAllLeadsScreen() {
+    if (!els.allLeadsList) return;
+    els.allLeadsCount.textContent = state.leads.length;
+    if (!state.leads.length) {
+      els.allLeadsList.innerHTML = '<p class="overlay-empty">No leads loaded.</p>';
+      return;
+    }
+    els.allLeadsList.innerHTML = state.leads.map(function (lead, idx) {
+      var row = lead.row;
+      var dialed = !!lead.dialedThisSession;
+      return '<div class="lead-list-item ' + (dialed ? "dialed" : "pending") + '" data-leadidx="' + idx + '">' +
+        '<div class="lead-list-name">' + escapeHtml(row.business_name || "(no name)") + '</div>' +
+        '<div class="lead-list-meta">' + escapeHtml(row.status || "new") + " · " +
+          (dialed ? "already logged" : "not yet dialed") + '</div>' +
+      '</div>';
+    }).join("");
+  }
+
+  // Jumps straight to lead `idx`'s card regardless of how far away it is —
+  // the direct-access complement to Back's history stack (Back only walks
+  // sequentially through what was just done; this reaches ANY lead).
+  // Deliberately does not touch actionHistory (nothing was mutated by the
+  // jump itself, so there is nothing to undo) and does not try to return
+  // to wherever state.index was before the jump once an outcome is logged
+  // — after fixing a lead this way, the cursor sits right after it; tap
+  // the list again to pick the next one you actually want, same as any
+  // other lookup. Simpler than tracking a return point, and still never
+  // more than one extra tap.
+  function jumpToLead(idx) {
+    if (idx < 0 || idx >= state.leads.length) return;
+    state.index = idx;
+    activeOverlay = null;
+    saveState();
+    render();
+    renderStats();
+  }
+
   function renderStats() {
     els.statDials.textContent = state.stats.dials;
     els.statAnswers.textContent = state.stats.answers;
@@ -1176,6 +1328,7 @@
     lead.row.attempts = patch.attempts;
     lead.row.status = patch.status;
     lead.row.next_eligible_at = patch.next_eligible_at;
+    lead.dialedThisSession = true;
     if (outcomeKey === "closed" && !lead.row.closed_at) {
       lead.row.closed_at = formatTimestamp(new Date());
     }
@@ -1205,6 +1358,7 @@
     lead.row.attempts = patch.attempts;
     lead.row.status = patch.status;
     lead.row.callback_at = patch.callback_at;
+    lead.dialedThisSession = true;
     lead.callbackAnnounced = false; // a freshly (re)scheduled callback must be able to pop again
 
     if (note) appendSessionNote(lead, note);
@@ -1238,7 +1392,7 @@
 
   // ── Item 4 — callback-due popup ──────────────────────────────────────────
   function checkForNewlyDueCallbacks() {
-    if (!state.fileLoaded || showingClosed) return;
+    if (!state.fileLoaded || activeOverlay) return;
     if (!els.noteModal.hidden || !els.callbackModal.hidden) return; // don't interrupt
     var now = new Date();
     for (var i = state.index; i < state.leads.length; i++) {
@@ -1375,13 +1529,31 @@
 
     // ── Wiring ─────────────────────────────────────────────────────────────
     els.loadBtn.addEventListener("click", function () { pendingLoadMode = "new"; els.fileInput.click(); });
-    els.loadMoreBtn.addEventListener("click", function () {
-      pendingLoadMode = state.fileLoaded && window.confirm(
-        "OK = append these to the leads already loaded (keeps today's dial history, sorted in).\n" +
-        "Cancel = start a brand-new session (replaces everything currently loaded)."
-      ) ? "append" : "new";
+
+    // 2026-09-17 fix — the old load-more flow was a single two-button
+    // confirm() where Cancel silently meant "discard the session," the
+    // opposite of what Cancel means everywhere else in the app. Replaced
+    // with a real three-option modal: Cancel truly changes nothing, and
+    // the destructive path is its own distinctly-labeled, distinctly-
+    // colored button with its own separate confirmation.
+    els.loadMoreBtn.addEventListener("click", function () { els.loadChoiceModal.hidden = false; });
+    els.loadCancelBtn.addEventListener("click", function () { els.loadChoiceModal.hidden = true; });
+    els.loadAppendBtn.addEventListener("click", function () {
+      els.loadChoiceModal.hidden = true;
+      pendingLoadMode = "append";
       els.fileInput.click();
     });
+    els.loadEndNewBtn.addEventListener("click", function () {
+      els.loadChoiceModal.hidden = true;
+      var confirmed = window.confirm(
+        "This permanently discards everything logged in the current session and starts fresh. This cannot be undone.\n\n" +
+        "End this session and start new?"
+      );
+      if (!confirmed) return;
+      pendingLoadMode = "new";
+      els.fileInput.click();
+    });
+
     els.fileInput.addEventListener("change", function (e) {
       if (e.target.files && e.target.files[0]) loadFile(e.target.files[0], pendingLoadMode);
     });
@@ -1429,9 +1601,15 @@
     els.copyMockupLinkBtn.addEventListener("click", copyMockupLinkText);
     els.copyPhotoRequestBtn.addEventListener("click", copyPhotoRequestText);
 
-    // ── Closed view (item 5) ────────────────────────────────────────────
-    els.statClosedWrap.addEventListener("click", function () { showingClosed = true; render(); });
-    els.closedBackBtn.addEventListener("click", function () { showingClosed = false; render(); });
+    // ── Stats-bar list overlays: Closed (item 5) / Scheduled callbacks /
+    // Leads in session (this turn) ───────────────────────────────────────
+    els.statClosedWrap.addEventListener("click", function () { activeOverlay = "closed"; render(); });
+    els.statCallbacksWrap.addEventListener("click", function () { activeOverlay = "callbacks"; render(); });
+    els.statRemainingWrap.addEventListener("click", function () { activeOverlay = "allLeads"; render(); });
+    els.closedBackBtn.addEventListener("click", function () { activeOverlay = null; render(); });
+    els.callbacksBackBtn.addEventListener("click", function () { activeOverlay = null; render(); });
+    els.allLeadsBackBtn.addEventListener("click", function () { activeOverlay = null; render(); });
+
     els.closedList.addEventListener("click", function (e) {
       var btn = e.target.closest(".closed-toggle");
       if (!btn) return;
@@ -1443,10 +1621,20 @@
       saveState();
       renderClosedScreen();
     });
+    els.callbacksList.addEventListener("click", function (e) {
+      var item = e.target.closest(".lead-list-item");
+      if (!item) return;
+      jumpToLead(parseInt(item.getAttribute("data-leadidx"), 10));
+    });
+    els.allLeadsList.addEventListener("click", function (e) {
+      var item = e.target.closest(".lead-list-item");
+      if (!item) return;
+      jumpToLead(parseInt(item.getAttribute("data-leadidx"), 10));
+    });
 
     var KEY_OUTCOME = { "1": "no_answer", "2": "dead", "3": "called_talked", "4": "closed" };
     document.addEventListener("keydown", function (e) {
-      if (!els.noteModal.hidden || !els.callbackModal.hidden) return; // don't hijack typing in a modal
+      if (!els.noteModal.hidden || !els.callbackModal.hidden || !els.loadChoiceModal.hidden) return; // don't hijack typing in a modal
       if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
 
       if (e.code === "Space") { e.preventDefault(); els.callBtn.click(); }
@@ -1470,9 +1658,14 @@
       if (!Array.isArray(state.actionHistory)) state.actionHistory = [];
       if (!state.scriptMode) state.scriptMode = "full";
       var nowResume = new Date();
-      state.leads.forEach(function (lead) {
+      state.leads.forEach(function (lead, idx) {
         if (typeof lead.firstName === "undefined") lead.firstName = "";
         if (typeof lead.callbackAnnounced === "undefined") lead.callbackAnnounced = isDue(lead.row.callback_at, nowResume);
+        // One-time inference for sessions saved before dialedThisSession
+        // existed: at that point index truly did only ever move forward
+        // sequentially (jumpToLead didn't exist yet), so "before the
+        // current index" reliably meant "already handled this session."
+        if (typeof lead.dialedThisSession === "undefined") lead.dialedThisSession = idx < state.index;
       });
       render();
       renderStats();
@@ -1492,7 +1685,7 @@
       localHourInTimezone: localHourInTimezone, gradeRank: gradeRank,
       filterAndSort: filterAndSort, dueCallbackCount: dueCallbackCount,
       appendRowsToQueue: appendRowsToQueue, reorderLeadToIndex: reorderLeadToIndex,
-      shouldAnnounceCallback: shouldAnnounceCallback,
+      shouldAnnounceCallback: shouldAnnounceCallback, callbackLeadsSorted: callbackLeadsSorted,
       MAX_ATTEMPTS: MAX_ATTEMPTS,
       formatTimestamp: formatTimestamp, parseTimestamp: parseTimestamp,
       addHours: addHours, isDue: isDue,
